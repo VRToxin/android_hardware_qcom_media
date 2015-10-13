@@ -1950,6 +1950,7 @@ OMX_ERRORTYPE omx_vdec::component_init(OMX_STRING role)
         DEBUG_PRINT_HIGH("omx_vdec::component_init() success");
     }
     //memset(&h264_mv_buff,0,sizeof(struct h264_mv_buffer));
+#ifdef V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY
     control.id = V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY;
     control.value = V4L2_MPEG_VIDC_VIDEO_PRIORITY_REALTIME_DISABLE;
 
@@ -1957,6 +1958,7 @@ OMX_ERRORTYPE omx_vdec::component_init(OMX_STRING role)
         DEBUG_PRINT_ERROR("Failed to set Default Priority");
         eRet = OMX_ErrorUnsupportedSetting;
     }
+#endif
     return eRet;
 }
 
@@ -4131,6 +4133,7 @@ OMX_ERRORTYPE  omx_vdec::set_config(OMX_IN OMX_HANDLETYPE      hComp,
 
         return ret;
     } else if ((int)configIndex == (int)OMX_IndexConfigPriority) {
+#ifdef V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY
         OMX_PARAM_U32TYPE *priority = (OMX_PARAM_U32TYPE *)configData;
         DEBUG_PRINT_LOW("Set_config: priority %d", priority->nU32);
 
@@ -4147,6 +4150,8 @@ OMX_ERRORTYPE  omx_vdec::set_config(OMX_IN OMX_HANDLETYPE      hComp,
             ret = OMX_ErrorUnsupportedSetting;
         }
         return ret;
+#endif
+#ifdef V4L2_CID_MPEG_VIDC_VIDEO_OPERATING_RATE
     } else if ((int)configIndex == (int)OMX_IndexConfigOperatingRate) {
         OMX_PARAM_U32TYPE *rate = (OMX_PARAM_U32TYPE *)configData;
         DEBUG_PRINT_LOW("Set_config: operating-rate %u fps", rate->nU32 >> 16);
@@ -4163,6 +4168,7 @@ OMX_ERRORTYPE  omx_vdec::set_config(OMX_IN OMX_HANDLETYPE      hComp,
                     rate->nU32 >> 16, errno == -EBUSY ? "HW Overload" : strerror(errno));
         }
         return ret;
+#endif
     }
 
     return OMX_ErrorNotImplemented;
