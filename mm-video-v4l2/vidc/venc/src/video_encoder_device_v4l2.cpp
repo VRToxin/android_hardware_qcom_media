@@ -4031,7 +4031,6 @@ bool venc_dev::venc_set_peak_bitrate(OMX_U32 nPeakBitrate)
 bool venc_dev::venc_set_session_priority(OMX_U32 priority) {
     struct v4l2_control control;
 
-#ifdef V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY
     control.id = V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY;
     switch(priority) {
         case 0:
@@ -4058,15 +4057,11 @@ bool venc_dev::venc_set_session_priority(OMX_U32 priority) {
     DEBUG_PRINT_LOW("Success IOCTL set control for id=%x, val=%d",
             control.id, control.value);
     return true;
-#else
-    return false;
-#endif
 }
 
 bool venc_dev::venc_set_operatingrate(OMX_U32 rate) {
     struct v4l2_control control;
 
-#ifdef V4L2_CID_MPEG_VIDC_VIDEO_OPERATING_RATE
     control.id = V4L2_CID_MPEG_VIDC_VIDEO_OPERATING_RATE;
     control.value = rate;
 
@@ -4082,9 +4077,6 @@ bool venc_dev::venc_set_operatingrate(OMX_U32 rate) {
     operating_rate = rate;
     DEBUG_PRINT_LOW("Operating Rate Set = %d fps",  rate >> 16);
     return true;
-#else
-    return false;
-#endif
 }
 
 bool venc_dev::venc_get_profile_level(OMX_U32 *eProfile,OMX_U32 *eLevel)
