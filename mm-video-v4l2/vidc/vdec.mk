@@ -87,8 +87,6 @@ endif
 libOmxVdec-def += -DFLEXYUV_SUPPORTED
 libOmxVdec-def += -DADAPTIVE_PLAYBACK_SUPPORTED
 
-vdec-inc       = $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr/include
-
 # ---------------------------------------------------------------------------------
 # 			Make the Shared library (libOmxVdec)
 # ---------------------------------------------------------------------------------
@@ -98,7 +96,7 @@ LOCAL_PATH:= $(ROOT_DIR)
 
 libmm-vdec-inc          := $(LOCAL_PATH)/vdec/inc
 libmm-vdec-inc          += $(OMX_VIDEO_PATH)/vidc/common/inc
-libmm-vdec-inc          += $(call project-path-for,qcom-media)/mm-core/inc
+libmm-vdec-inc          += hardware/qcom/media/mm-core/inc
 #DRM include - Interface which loads the DRM library
 libmm-vdec-inc	        += $(OMX_VIDEO_PATH)/DivxDrmDecrypt/inc
 libmm-vdec-inc          += $(TARGET_OUT_HEADERS)/qcom/display
@@ -106,7 +104,7 @@ libmm-vdec-inc          += $(TARGET_OUT_HEADERS)/adreno
 libmm-vdec-inc          += frameworks/native/include/media/openmax
 libmm-vdec-inc          += frameworks/native/include/media/hardware
 libmm-vdec-inc          += $(vdec-inc)
-libmm-vdec-inc      += $(call project-path-for,qcom-media)/libc2dcolorconvert
+libmm-vdec-inc      += hardware/qcom/media/libc2dcolorconvert
 libmm-vdec-inc      += frameworks/av/include/media/stagefright
 
 
@@ -139,8 +137,6 @@ LOCAL_SRC_FILES         += common/src/vidc_color_converter.cpp
 
 # omx_vdec_msm8974.cpp:9375:16: address of array 'extra->data' will always evaluate to 'true'
 LOCAL_CLANG_CFLAGS      += -Wno-pointer-bool-conversion
-
-LOCAL_ADDITIONAL_DEPENDENCIES  := $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr
 
 include $(BUILD_SHARED_LIBRARY)
 
@@ -175,8 +171,6 @@ LOCAL_SRC_FILES         += vdec/src/hevc_utils.cpp
 LOCAL_SRC_FILES         += common/src/extra_data_handler.cpp
 LOCAL_SRC_FILES         += common/src/vidc_color_converter.cpp
 
-LOCAL_ADDITIONAL_DEPENDENCIES  := $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr
-
 #include $(BUILD_SHARED_LIBRARY)
 
 endif
@@ -186,7 +180,7 @@ endif
 # ---------------------------------------------------------------------------------
 include $(CLEAR_VARS)
 
-mm-vdec-test-inc    := $(call project-path-for,qcom-media)/mm-core/inc
+mm-vdec-test-inc    := hardware/qcom/media/mm-core/inc
 mm-vdec-test-inc    += $(LOCAL_PATH)/vdec/inc
 mm-vdec-test-inc    += $(vdec-inc)
 
@@ -207,7 +201,7 @@ LOCAL_SRC_FILES           += vdec/test/omx_vdec_test.cpp
 # ---------------------------------------------------------------------------------
 include $(CLEAR_VARS)
 
-mm-vdec-drv-test-inc    := $(call project-path-for,qcom-media)/mm-core/inc
+mm-vdec-drv-test-inc    := hardware/qcom/media/mm-core/inc
 mm-vdec-drv-test-inc    += $(LOCAL_PATH)/vdec/inc
 mm-vdec-drv-test-inc    += $(vdec-inc)
 
@@ -218,8 +212,6 @@ LOCAL_C_INCLUDES                := $(mm-vdec-drv-test-inc)
 
 LOCAL_SRC_FILES                 := vdec/src/message_queue.c
 LOCAL_SRC_FILES                 += vdec/test/decoder_driver_test.c
-
-LOCAL_ADDITIONAL_DEPENDENCIES  := $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr
 
 #include $(BUILD_EXECUTABLE)
 
