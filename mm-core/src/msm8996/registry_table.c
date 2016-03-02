@@ -56,6 +56,22 @@ omx_core_cb_type core[] =
     }
   },
   {
+    "OMX.qcom.video.decoder.avc.dsmode",
+    NULL,   // Create instance function
+    // Unique instance handle
+    {
+      NULL,
+      NULL,
+      NULL,
+      NULL
+    },
+    NULL,   // Shared object library handle
+    "libOmxVideoDSMode.so",
+    {
+      "video_decoder.avc"
+    }
+  },
+  {
     "OMX.qcom.video.decoder.mpeg4",
     NULL,   // Create instance function
     // Unique instance handle
@@ -377,7 +393,7 @@ omx_core_cb_type core[] =
     }
   },
   {
-    "OMX.qcom.audio.decoder.aac",
+    "OMX.qcom.audio.decoder.alac",
     NULL,   // Create instance function
     // Unique instance handle
     {
@@ -387,9 +403,25 @@ omx_core_cb_type core[] =
       NULL
     },
     NULL,   // Shared object library handle
-    "libOmxAacDec.so",
+    "libOmxAlacDec.so",
     {
-      "audio_decoder.aac"
+      "audio_decoder.alac"
+    }
+  },
+  {
+    "OMX.qcom.audio.decoder.ape",
+    NULL,   // Create instance function
+    // Unique instance handle
+    {
+      NULL,
+      NULL,
+      NULL,
+      NULL
+    },
+    NULL,   // Shared object library handle
+    "libOmxApeDec.so",
+    {
+      "audio_decoder.ape"
     }
   },
   {
@@ -502,6 +534,22 @@ omx_core_cb_type core[] =
     "libOmxVdpp.so",
     {
       "videopostprocessing"
+    }
+  },
+  {
+    "OMX.qti.vdec.vpp",
+    NULL, // Create instance function
+    // Unique instance handle
+    {
+      NULL,
+      NULL,
+      NULL,
+      NULL
+    },
+    NULL,   // Shared object library handle
+    "libOmxVpp.so",
+    {
+      "video_decoder.vpp"
     }
   }
 };

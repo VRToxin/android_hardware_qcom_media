@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 - 2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012 - 2013, 2015 The Linux Foundation. All rights reserved.
  *
  * redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -65,6 +65,9 @@ typedef C2D_STATUS (*LINK_c2dMapAddr)( int mem_fd, void * hostptr, uint32 len, u
 
 typedef C2D_STATUS (*LINK_c2dUnMapAddr)(void * gpuaddr);
 
+typedef void (*LINK_AdrenoComputeAlignedWidthAndHeight) (int width, int height, int bpp, int tile_mode, int raster_mode,
+                                                          int padding_threshold, int *aligned_width, int * aligned_height);
+
 namespace android {
 
 /*TODO: THIS NEEDS TO ENABLED FOR JB PLUS*/
@@ -77,6 +80,7 @@ enum ColorConvertFormat {
     RGBA8888,
     NV12_2K,
     NV12_128m,
+    NV12_UBWC,
 };
 
 typedef struct {

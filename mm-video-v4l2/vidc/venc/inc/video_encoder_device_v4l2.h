@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------------
-Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are
@@ -34,15 +34,18 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "OMX_VideoExt.h"
 #include "OMX_QCOMExtns.h"
 #include "qc_omx_component.h"
+#include "VQZip.h"
 #include "omx_video_common.h"
 #include "omx_video_base.h"
 #include "omx_video_encoder.h"
 #include <linux/videodev2.h>
+#include <media/msm_vidc.h>
 #include <poll.h>
 
 #define TIMEOUT 5*60*1000
 #define BIT(num) (1 << (num))
 #define MAX_HYB_HIERP_LAYERS 6
+#define MAX_V4L2_BUFS 64 //VB2_MAX_FRAME
 
 enum hier_type {
     HIER_NONE = 0x0,
@@ -207,6 +210,10 @@ struct msm_venc_vui_timing_info {
     unsigned int enabled;
 };
 
+struct msm_venc_vqzip_sei_info {
+    unsigned int enabled;
+};
+
 struct msm_venc_peak_bitrate {
     unsigned int peakbitrate;
 };
@@ -215,21 +222,67 @@ struct msm_venc_vpx_error_resilience {
     unsigned int enable;
 };
 
+struct msm_venc_priority {
+    OMX_U32 priority;
+};
+
+struct msm_venc_hybrid_hp {
+   unsigned int nSize;
+   unsigned int nKeyFrameInterval;
+   unsigned int nTemporalLayerBitrateRatio[OMX_VIDEO_MAX_HP_LAYERS];
+   unsigned int nMinQuantizer;
+   unsigned int nMaxQuantizer;
+   unsigned int nHpLayers;
+};
+
 enum v4l2_ports {
     CAPTURE_PORT,
     OUTPUT_PORT,
     MAX_PORT
 };
 
-struct extradata_buffer_info {
-    unsigned long buffer_size;
-    char* uaddr;
-    int count;
-    int size;
-    int allocated;
-#ifdef USE_ION
-    struct venc_ion ion;
-#endif
+class encExtradata {
+private:
+    enum {
+        FREE,
+        BUSY,
+        FOR_CONFIG,
+    };
+    struct info {
+        int status;
+        void *cookie;
+    };
+    pthread_mutex_t lock;
+    unsigned int mCount;
+    ssize_t mSize;
+    char *mUaddr;
+    struct venc_ion mIon;
+    struct info mIndex[MAX_V4L2_BUFS];
+    class omx_venc *mVencHandle;
+    int __get(char **userptr, int *fd, unsigned *offset, ssize_t *size, int type);
+    OMX_ERRORTYPE __allocate();
+    void __free();
+    void __debug();
+public:
+    unsigned int mDbgEtbCount;
+    encExtradata(class omx_venc *venc_handle);
+    ~encExtradata();
+    void update(unsigned int count, ssize_t size);
+    /* Get extradata whose status is FREE. */
+    OMX_ERRORTYPE get(char **userptr, int *fd, unsigned *offset, ssize_t *size);
+    /* Get extradata which is tagged with cookie via setCookieForConfigExtradata. If no extradata is tagged with this cookie then get extradata whose status is FREE. */
+    OMX_ERRORTYPE get(void *cookie, char **userptr, int *fd, unsigned *offset, ssize_t *size);
+    /* return the extradata back to the pool of FREE extradata. */
+    OMX_ERRORTYPE put(char *userptr);
+    /* If there is already an extradata with status FOR_CONFIG, return that else return FREE extradata. */
+    OMX_ERRORTYPE getForConfig(char **userptr, int *fd, unsigned *offset, ssize_t *size);
+    /* Return the extradata pointer corresponding to the index. Does not change status of extradata. */
+    OMX_ERRORTYPE peek(unsigned index, char **userptr, int *fd, unsigned* offset, ssize_t *size);
+    /* Attach a cookie to extradata. Extradata with this cookie can be retrieved via getExtradata call.*/
+    void setCookieForConfig(void *cookie);
+    ssize_t getBufferSize();
+    unsigned int getBufferCount();
+    bool vqzip_sei_found;
 };
 
 struct statistics {
@@ -289,17 +342,46 @@ class venc_dev
                         OMX_U32 height);
         bool venc_get_performance_level(OMX_U32 *perflevel);
         bool venc_get_vui_timing_info(OMX_U32 *enabled);
+        bool venc_get_vqzip_sei_info(OMX_U32 *enabled);
         bool venc_get_peak_bitrate(OMX_U32 *peakbitrate);
+        bool venc_get_batch_size(OMX_U32 *size);
         bool venc_get_output_log_flag();
+        bool venc_check_valid_config();
         int venc_output_log_buffers(const char *buffer_addr, int buffer_len);
-        int venc_input_log_buffers(OMX_BUFFERHEADERTYPE *buffer, int fd, int plane_offset);
+        int venc_input_log_buffers(OMX_BUFFERHEADERTYPE *buffer, int fd, int plane_offset,
+                        unsigned long inputformat);
         int venc_extradata_log_buffers(char *buffer_addr);
+        bool venc_set_bitrate_type(OMX_U32 type);
+        int venc_roiqp_log_buffers(OMX_QTI_VIDEO_CONFIG_ROIINFO *roiInfo);
 
+        class venc_dev_vqzip
+        {
+            public:
+                venc_dev_vqzip();
+                ~venc_dev_vqzip();
+                bool init();
+                void deinit();
+                struct VQZipConfig pConfig;
+                int tempSEI[300];
+                int fill_stats_data(void* pBuf, void *pStats);
+                typedef void (*vqzip_deinit_t)(void*);
+                typedef void* (*vqzip_init_t)(void);
+                typedef VQZipStatus (*vqzip_compute_stats_t)(void* const , const void * const , const VQZipConfig* ,VQZipStats*);
+            private:
+                pthread_mutex_t lock;
+                void *mLibHandle;
+                void *mVQZIPHandle;
+                vqzip_init_t mVQZIPInit;
+                vqzip_deinit_t mVQZIPDeInit;
+                vqzip_compute_stats_t mVQZIPComputeStats;
+        };
+        venc_dev_vqzip vqzip;
         struct venc_debug_cap m_debug;
         OMX_U32 m_nDriver_fd;
+        int m_poll_efd;
         bool m_profile_set;
         bool m_level_set;
-        int num_planes;
+        int num_input_planes, num_output_planes;
         int etb, ebd, ftb, fbd;
         struct recon_buffer {
             unsigned char* virtual_address;
@@ -319,14 +401,20 @@ class venc_dev
         bool m_max_allowed_bitrate_check;
         pthread_t m_tid;
         bool async_thread_created;
+        bool async_thread_force_stop;
         class omx_venc *venc_handle;
-        OMX_ERRORTYPE allocate_extradata();
-        void free_extradata();
         int append_mbi_extradata(void *, struct msm_vidc_extradata_header*);
-        bool handle_extradata(void *, int);
+        bool handle_output_extradata(void *);
+        bool handle_input_extradata(void *, int);
         int venc_set_format(int);
         bool deinterlace_enabled;
         bool hw_overload;
+        bool is_gralloc_source_ubwc;
+        bool is_camera_source_ubwc;
+        OMX_U32 fd_list[64];
+        encExtradata mInputExtradata;
+        encExtradata mOutputExtradata;
+
     private:
         OMX_U32                             m_codec;
         struct msm_venc_basecfg             m_sVenc_cfg;
@@ -355,9 +443,14 @@ class venc_dev
         struct msm_venc_hierlayers          hier_layers;
         struct msm_venc_perf_level          performance_level;
         struct msm_venc_vui_timing_info     vui_timing_info;
+        struct msm_venc_vqzip_sei_info      vqzip_sei_info;
         struct msm_venc_peak_bitrate        peak_bitrate;
         struct msm_venc_ltrinfo             ltrinfo;
         struct msm_venc_vpx_error_resilience vpx_err_resilience;
+        struct msm_venc_priority            sess_priority;
+        OMX_U32                             operating_rate;
+        int rc_off_level;
+        struct msm_venc_hybrid_hp           hybrid_hp;
 
         bool venc_set_profile_level(OMX_U32 eProfile,OMX_U32 eLevel);
         bool venc_set_intra_period(OMX_U32 nPFrames, OMX_U32 nBFrames);
@@ -395,9 +488,22 @@ class venc_dev
         bool venc_set_searchrange();
         bool venc_set_vpx_error_resilience(OMX_BOOL enable);
         bool venc_set_perf_mode(OMX_U32 mode);
-        bool venc_set_hybrid_hierp(OMX_U32 layers);
+        bool venc_set_mbi_statistics_mode(OMX_U32 mode);
+        bool venc_set_vqzip_sei_type(OMX_BOOL enable);
+        bool venc_set_hybrid_hierp(QOMX_EXTNINDEX_VIDEO_HYBRID_HP_MODE* hhp);
+        bool venc_set_batch_size(OMX_U32 size);
         bool venc_calibrate_gop();
+        bool venc_set_vqzip_defaults();
         bool venc_validate_hybridhp_params(OMX_U32 layers, OMX_U32 bFrames, OMX_U32 count, int mode);
+        bool venc_set_max_hierp(OMX_U32 hierp_layers);
+        bool venc_set_baselayerid(OMX_U32 baseid);
+        bool venc_set_qp(OMX_U32 nQp);
+        bool venc_set_aspectratio(void *nSar);
+        bool venc_set_priority(OMX_U32 priority);
+        bool venc_set_session_priority(OMX_U32 priority);
+        bool venc_set_operatingrate(OMX_U32 rate);
+        bool venc_set_layer_bitrates(QOMX_EXTNINDEX_VIDEO_HYBRID_HP_MODE* hpmode);
+        bool venc_set_roi_qp_info(OMX_QTI_VIDEO_CONFIG_ROIINFO *roiInfo);
 
 #ifdef MAX_RES_1080P
         OMX_U32 pmem_free();
@@ -416,7 +522,6 @@ class venc_dev
         int metadatamode;
         bool streaming[MAX_PORT];
         bool extradata;
-        struct extradata_buffer_info extradata_info;
 
         pthread_mutex_t pause_resume_mlock;
         pthread_cond_t pause_resume_cond;
@@ -426,6 +531,39 @@ class venc_dev
         bool enable_mv_narrow_searchrange;
         int supported_rc_modes;
         bool is_thulium_v1;
+        bool camera_mode_enabled;
+
+        bool venc_empty_batch (OMX_BUFFERHEADERTYPE *buf, unsigned index);
+        static const int kMaxBuffersInBatch = 16;
+        unsigned int mBatchSize;
+        struct BatchInfo {
+            BatchInfo();
+            /* register a buffer and obtain its unique id (v4l2-buf-id)
+             */
+            int registerBuffer(int bufferId);
+            /* retrieve the buffer given its v4l2-buf-id
+             */
+            int retrieveBufferAt(int v4l2Id);
+            bool isPending(int bufferId);
+
+          private:
+            static const int kMaxBufs = 64;
+            static const int kBufIDFree = -1;
+            pthread_mutex_t mLock;
+            int mBufMap[64];  // Map with slots for each buffer
+            size_t mNumPending;
+
+          public:
+            // utility methods to parse entities in batch
+            // payload format for batch of 3
+            //| fd0 | fd1 | fd2 | off0 | off1 | off2 | len0 | len1 | len2 | csc0 | csc1 | csc2 | dTS0 | dTS1 | dTS2|
+            static inline int getFdAt(native_handle_t *, int index);
+            static inline int getOffsetAt(native_handle_t *, int index);
+            static inline int getSizeAt(native_handle_t *, int index);
+            static inline int getColorFormatAt(native_handle_t *, int index);
+            static inline int getTimeStampAt(native_handle_t *, int index);
+        };
+        BatchInfo mBatchInfo;
 };
 
 enum instance_state {

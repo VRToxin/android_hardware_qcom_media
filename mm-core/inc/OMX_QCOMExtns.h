@@ -46,6 +46,7 @@ extern "C" {
 #include "OMX_Core.h"
 #include "OMX_Video.h"
 
+#define OMX_VIDEO_MAX_HP_LAYERS 6
 /**
  * This extension is used to register mapping of a virtual
  * address to a physical address. This extension is a parameter
@@ -99,6 +100,8 @@ struct OMX_QCOM_PARAM_MEMMAPENTRYTYPE
 #define QOMX_VIDEO_BUFFERFLAG_EOSEQ  0x00200000
 
 #define QOMX_VIDEO_BUFFERFLAG_MBAFF  0x00400000
+
+#define QOMX_VIDEO_BUFFERFLAG_CANCEL 0x00800000
 
 #define OMX_QCOM_PORTDEFN_EXTN   "OMX.QCOM.index.param.portdefn"
 /* Allowed APIs on the above Index: OMX_GetParameter() and OMX_SetParameter() */
@@ -278,6 +281,8 @@ enum OMX_QCOM_COLOR_FORMATTYPE
     QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m,
     QOMX_COLOR_FORMATYUV420PackedSemiPlanar32mMultiView,
     QOMX_COLOR_FORMATYUV420PackedSemiPlanar32mCompressed,
+    QOMX_COLOR_Format32bitRGBA8888,
+    QOMX_COLOR_Format32bitRGBA8888Compressed,
     QOMX_COLOR_FormatAndroidOpaque = (OMX_COLOR_FORMATTYPE) OMX_COLOR_FormatVendorStartUnused  + 0x789,
 };
 
@@ -479,9 +484,6 @@ enum OMX_QCOM_EXTN_INDEXTYPE
     /*"OMX.QCOM.index.param.video.CustomBufferSize"*/
     OMX_QcomIndexParamVideoCustomBufferSize = 0x7F00003E,
 
-    /*"OMX.QCOM.index.param.video.Mpeg2SeqDispExtraData"*/
-    OMX_QcomIndexParamMpeg2SeqDispExtraData = 0x7F000040,
-
     /* Max Hierarchical P layers */
     OMX_QcomIndexMaxHierarchicallayers = 0x7F000041,
 
@@ -490,7 +492,101 @@ enum OMX_QCOM_EXTN_INDEXTYPE
 
     /* Set Hybrid Hier-p layers */
     OMX_QcomIndexParamVideoHybridHierpMode = 0x7F000043,
+
+    OMX_QcomIndexFlexibleYUVDescription = 0x7F000044,
+
+    /* Vpp Hqv Control Type */
+    OMX_QcomIndexParamVppHqvControl = 0x7F000045,
+
+    /* Enable VPP */
+    OMX_QcomIndexParamEnableVpp = 0x7F000046,
+
+    /* MBI statistics mode */
+    OMX_QcomIndexParamMBIStatisticsMode = 0x7F000047,
+
+    /* Set PictureTypeDecode */
+    OMX_QcomIndexConfigPictureTypeDecode = 0x7F000048,
+
+    OMX_QcomIndexConfigH264EntropyCodingCabac = 0x7F000049,
+
+    /* "OMX.QCOM.index.param.video.InputBatch" */
+    OMX_QcomIndexParamBatchSize = 0x7F00004A,
+
+    OMX_QcomIndexConfigMaxHierPLayers = 0x7F00004B,
+
+    OMX_QcomIndexConfigRectType = 0x7F00004C,
+
+    OMX_QcomIndexConfigBaseLayerId = 0x7F00004E,
+
+    OMX_QcomIndexParamDriverVersion = 0x7F00004F,
+
+    OMX_QcomIndexConfigQp = 0x7F000050,
+
+    OMX_QcomIndexParamVencAspectRatio = 0x7F000051,
+
+    OMX_QTIIndexParamVQZipSEIExtraData = 0x7F000052,
+
+    /* Enable VQZIP SEI NAL type */
+    OMX_QTIIndexParamVQZIPSEIType = 0x7F000053,
+
+    OMX_QTIIndexParamPassInputBufferFd = 0x7F000054,
+
+    /* Set Prefer-adaptive playback*/
+    /* "OMX.QTI.index.param.video.PreferAdaptivePlayback" */
+    OMX_QTIIndexParamVideoPreferAdaptivePlayback = 0x7F000055,
+
+    /* Set time params */
+    OMX_QTIIndexConfigSetTimeData = 0x7F000056,
+    /* Force Compressed format for DPB when resolution <=1080p
+     * and OPB is cpu_access */
+    /* OMX.QTI.index.param.video.ForceCompressedForDPB */
+    OMX_QTIIndexParamForceCompressedForDPB = 0x7F000057,
+
+    /* Enable ROI info */
+    OMX_QTIIndexParamVideoEnableRoiInfo = 0x7F000058,
+
+    /* Configure ROI info */
+    OMX_QTIIndexConfigVideoRoiInfo = 0x7F000059,
 };
+
+/**
+* This is custom extension to configure Encoder Aspect Ratio.
+*
+* STRUCT MEMBERS
+*
+* nSize         : Size of Structure in bytes
+* nVersion      : OpenMAX IL specification version information
+* nSARWidth     : Horizontal aspect size
+* nSARHeight    : Vertical aspect size
+*/
+
+typedef struct QOMX_EXTNINDEX_VIDEO_VENC_SAR
+{
+   OMX_U32 nSize;
+   OMX_U32 nVersion;
+   OMX_U32 nSARWidth;
+   OMX_U32 nSARHeight;
+} QOMX_EXTNINDEX_VIDEO_VENC_SAR;
+
+/**
+* This is custom extension to configure Hier-p layers.
+* This mode configures Hier-p layers dynamically.
+*
+* STRUCT MEMBERS
+*
+* nSize         : Size of Structure in bytes
+* nVersion      : OpenMAX IL specification version information
+* nMaxHierLayers: Set the max number of Hier-p layers for the session
+*                  - This should be less than the Hier-P layers set
+*                    for the session.
+*/
+
+typedef struct QOMX_EXTNINDEX_VIDEO_MAX_HIER_P_LAYERS {
+   OMX_U32 nSize;
+   OMX_VERSIONTYPE nVersion;
+   OMX_U32 nMaxHierLayers;
+} QOMX_EXTNINDEX_VIDEO_MAX_HIER_P_LAYERS;
+
 
 /**
 * This is custom extension to configure Hybrid Hier-p settings.
@@ -502,14 +598,23 @@ enum OMX_QCOM_EXTN_INDEXTYPE
 *
 * nSize         : Size of Structure in bytes
 * nVersion      : OpenMAX IL specification version information
+* nKeyFrameInterval : Indicates the I frame interval
 * nHpLayers     : Set the number of Hier-p layers for the session
 *                  - This should be <= 6. (1 Base layer +
 *                    5 Enhancement layers)
+* nTemporalLayerBitrateRatio[OMX_VIDEO_MAX_HP_LAYERS] : Bitrate to
+*                    be set for each enhancement layer
+* nMinQuantizer  : minimum session QP
+* nMaxQuantizer  : Maximun session QP
 */
 
 typedef struct QOMX_EXTNINDEX_VIDEO_HYBRID_HP_MODE {
    OMX_U32 nSize;
    OMX_VERSIONTYPE nVersion;
+   OMX_U32 nKeyFrameInterval;
+   OMX_U32 nTemporalLayerBitrateRatio[OMX_VIDEO_MAX_HP_LAYERS];
+   OMX_U32 nMinQuantizer;
+   OMX_U32 nMaxQuantizer;
    OMX_U32 nHpLayers;
 } QOMX_EXTNINDEX_VIDEO_HYBRID_HP_MODE;
 
@@ -918,6 +1023,23 @@ typedef struct OMX_QCOM_VIDEO_CONFIG_PERF_LEVEL {
     QOMX_VIDEO_PERF_LEVEL ePerfLevel;   /** Performance level */
 } OMX_QCOM_VIDEO_CONFIG_PERF_LEVEL;
 
+typedef enum QOMX_VIDEO_PICTURE_TYPE_DECODE
+{
+    OMX_QCOM_PictypeDecode_IPB,
+    OMX_QCOM_PictypeDecode_I
+} QOMX_VIDEO_PICTURE_TYPE_DECODE;
+
+/**
+ * This structure describes the parameters corresponding
+ * to OMX_QcomIndexConfigPictureTypeDecode extension. It
+ * will set the picture type decode specified by eDecodeType.
+ */
+typedef struct OMX_QCOM_VIDEO_CONFIG_PICTURE_TYPE_DECODE {
+    OMX_U32 nSize;                      /** Size of the structure in bytes */
+    OMX_VERSIONTYPE nVersion;           /** OMX specification version information */
+    QOMX_VIDEO_PICTURE_TYPE_DECODE eDecodeType;   /** Decode type */
+} OMX_QCOM_VIDEO_CONFIG_PICTURE_TYPE_DECODE;
+
 /**
  * This structure describes the parameters corresponding
  * to OMX_QcomIndexParamH264VUITimingInfo extension. It
@@ -931,6 +1053,17 @@ typedef struct OMX_QCOM_VIDEO_PARAM_VUI_TIMING_INFO {
 
 /**
  * This structure describes the parameters corresponding
+ * to OMX_QcomIndexParamVQZIPSEIType extension. It
+ * will enable/disable the VQZIP SEI info.
+ */
+typedef struct OMX_QTI_VIDEO_PARAM_VQZIP_SEI_TYPE {
+    OMX_U32 nSize;              /** Size of the structure in bytes */
+    OMX_VERSIONTYPE nVersion;   /** OMX specification version information */
+    OMX_BOOL bEnable;           /** Enable/disable the setting */
+} OMX_QTI_VIDEO_PARAM_VQZIP_SEI_TYPE;
+
+/**
+ * This structure describes the parameters corresponding
  * to OMX_QcomIndexParamPeakBitrate extension. It will
  * set the peak bitrate specified by nPeakBitrate.
  */
@@ -939,6 +1072,22 @@ typedef struct OMX_QCOM_VIDEO_PARAM_PEAK_BITRATE {
     OMX_VERSIONTYPE nVersion;   /** OMX specification version information */
     OMX_U32 nPeakBitrate;       /** Peak bitrate value */
 } OMX_QCOM_VIDEO_PARAM_PEAK_BITRATE;
+
+/**
+ * This structure describes the parameters corresponding
+ * to OMX_QTIIndexParamForceCompressedForDPB extension. Enabling
+ * this extension will force the split mode DPB(compressed)/OPB(Linear)
+ * for all resolutions.On some chipsets preferred mode would be combined
+ * Linear for both DPB/OPB to save memory. For example on 8996 preferred mode
+ * would be combined linear for resolutions <= 1080p .
+ * Enabling this might save power but with the cost
+ * of increased memory i.e almost double the number on output YUV buffers.
+ */
+typedef struct OMX_QTI_VIDEO_PARAM_FORCE_COMPRESSED_FOR_DPB_TYPE {
+    OMX_U32 nSize;              /** Size of the structure in bytes */
+    OMX_VERSIONTYPE nVersion;   /** OMX specification version information */
+    OMX_BOOL bEnable;           /** Enable/disable the setting */
+} OMX_QTI_VIDEO_PARAM_FORCE_COMPRESSED_FOR_DPB_TYPE;
 
 typedef struct OMX_VENDOR_EXTRADATATYPE  {
     OMX_U32 nPortIndex;
@@ -1114,10 +1263,28 @@ typedef struct OMX_QCOM_EXTRADATA_MBINFO
    OMX_U8  data[0];
 } OMX_QCOM_EXTRADATA_MBINFO;
 
-typedef struct OMX_QCOM_EXTRADATA_MPEG2SEQDISPLAY {
-    OMX_U32 disp_width;
-    OMX_U32 disp_height;
-} OMX_QCOM_EXTRADATA_MPEG2SEQDISPLAY;
+typedef struct OMX_QCOM_EXTRADATA_VQZIPSEI {
+    OMX_U32 nSize;
+    OMX_U8 data[0];
+} OMX_QCOM_EXTRADATA_VQZIPSEI;
+
+typedef struct OMX_QTI_VIDEO_PARAM_ENABLE_ROIINFO {
+    OMX_U32         nSize;
+    OMX_VERSIONTYPE nVersion;
+    OMX_U32         nPortIndex;
+    OMX_BOOL        bEnableRoiInfo;
+} OMX_QTI_VIDEO_PARAM_ENABLE_ROIINFO;
+
+typedef struct OMX_QTI_VIDEO_CONFIG_ROIINFO {
+    OMX_U32         nSize;
+    OMX_VERSIONTYPE nVersion;
+    OMX_U32         nPortIndex;
+    OMX_S32         nUpperQpOffset;
+    OMX_S32         nLowerQpOffset;
+    OMX_BOOL        bUseRoiInfo;
+    OMX_S32         nRoiMBInfoSize;
+    OMX_PTR         pRoiMBInfo;
+} OMX_QTI_VIDEO_CONFIG_ROIINFO;
 
 typedef enum OMX_QCOM_EXTRADATATYPE
 {
@@ -1136,7 +1303,7 @@ typedef enum OMX_QCOM_EXTRADATATYPE
     OMX_ExtraDataQP =                      0x7F00000d,
     OMX_ExtraDataInputBitsInfo =           0x7F00000e,
     OMX_ExtraDataVideoEncoderMBInfo =      0x7F00000f,
-    OMX_ExtraDataMpeg2SeqDisplay =         0x7F000010,
+    OMX_ExtraDataVQZipSEI  =               0x7F000010,
 } OMX_QCOM_EXTRADATATYPE;
 
 typedef struct  OMX_STREAMINTERLACEFORMATTYPE {
@@ -1172,7 +1339,9 @@ typedef enum QOMX_VIDEO_AVCPROFILETYPE {
     QOMX_VIDEO_AVCProfileHigh422       = OMX_VIDEO_AVCProfileHigh422,
     QOMX_VIDEO_AVCProfileHigh444       = OMX_VIDEO_AVCProfileHigh444,
     /* QCom specific profile indexes */
-    QOMX_VIDEO_AVCProfileConstrainedBaseline   = OMX_VIDEO_AVCProfileVendorStartUnused + 1,
+    QOMX_VIDEO_AVCProfileConstrained           = OMX_VIDEO_AVCProfileVendorStartUnused,
+    QOMX_VIDEO_AVCProfileConstrainedBaseline,
+    QOMX_VIDEO_AVCProfileConstrainedHigh,
 } QOMX_VIDEO_AVCPROFILETYPE;
 
 
@@ -1404,6 +1573,38 @@ typedef struct QOMX_VIDEO_CUSTOM_BUFFERSIZE {
 #define OMX_QCOM_INDEX_CONFIG_VIDEO_FRAMEPACKING_INFO "OMX.QCOM.index.config.video.FramePackingInfo"
 #define OMX_QCOM_INDEX_PARAM_VIDEO_MPEG2SEQDISP_EXTRADATA "OMX.QCOM.index.param.video.Mpeg2SeqDispExtraData"
 
+
+#define OMX_QCOM_INDEX_PARAM_VIDEO_HIERSTRUCTURE "OMX.QCOM.index.param.video.HierStructure"
+#define OMX_QCOM_INDEX_PARAM_VIDEO_LTRCOUNT "OMX.QCOM.index.param.video.LTRCount"
+#define OMX_QCOM_INDEX_PARAM_VIDEO_LTRPERIOD "OMX.QCOM.index.param.video.LTRPeriod"
+#define OMX_QCOM_INDEX_CONFIG_VIDEO_LTRUSE "OMX.QCOM.index.config.video.LTRUse"
+#define OMX_QCOM_INDEX_CONFIG_VIDEO_LTRMARK "OMX.QCOM.index.config.video.LTRMark"
+#define OMX_QCOM_INDEX_CONFIG_VIDEO_MAX_HIER_P_LAYERS "OMX.QCOM.index.config.video.hierplayers"
+#define OMX_QCOM_INDEX_CONFIG_RECTANGLE_TYPE "OMX.QCOM.index.config.video.rectangle"
+#define OMX_QCOM_INDEX_PARAM_VIDEO_BASE_LAYER_ID "OMX.QCOM.index.param.video.baselayerid"
+#define OMX_QCOM_INDEX_PARAM_VIDEO_DRIVERVERSION "OMX.QCOM.index.param.video.FramePackingInfo"
+#define OMX_QCOM_INDEX_CONFIG_VIDEO_QP "OMX.QCOM.index.config.video.qp"
+#define OMX_QCOM_INDEX_PARAM_VIDEO_SAR "OMX.QCOM.index.param.video.sar"
+
+
+#define OMX_QCOM_INDEX_PARAM_VIDEO_HIERSTRUCTURE "OMX.QCOM.index.param.video.HierStructure"
+#define OMX_QCOM_INDEX_PARAM_VIDEO_LTRCOUNT "OMX.QCOM.index.param.video.LTRCount"
+#define OMX_QCOM_INDEX_PARAM_VIDEO_LTRPERIOD "OMX.QCOM.index.param.video.LTRPeriod"
+#define OMX_QCOM_INDEX_CONFIG_VIDEO_LTRUSE "OMX.QCOM.index.config.video.LTRUse"
+#define OMX_QCOM_INDEX_CONFIG_VIDEO_LTRMARK "OMX.QCOM.index.config.video.LTRMark"
+#define OMX_QCOM_INDEX_CONFIG_VIDEO_MAX_HIER_P_LAYERS "OMX.QCOM.index.config.video.hierplayers"
+#define OMX_QCOM_INDEX_CONFIG_RECTANGLE_TYPE "OMX.QCOM.index.config.video.rectangle"
+#define OMX_QCOM_INDEX_PARAM_VIDEO_BASE_LAYER_ID "OMX.QCOM.index.param.video.baselayerid"
+#define OMX_QCOM_INDEX_CONFIG_VIDEO_QP "OMX.QCOM.index.config.video.qp"
+#define OMX_QCOM_INDEX_PARAM_VIDEO_SAR "OMX.QCOM.index.param.video.sar"
+
+#define OMX_QCOM_INDEX_PARAM_VIDEO_PASSINPUTBUFFERFD "OMX.QCOM.index.param.video.PassInputBufferFd"
+#define OMX_QTI_INDEX_PARAM_VIDEO_PREFER_ADAPTIVE_PLAYBACK "OMX.QTI.index.param.video.PreferAdaptivePlayback"
+#define OMX_QTI_INDEX_CONFIG_VIDEO_SETTIMEDATA "OMX.QTI.index.config.video.settimedata"
+#define OMX_QTI_INDEX_PARAM_VIDEO_FORCE_COMPRESSED_FOR_DPB "OMX.QTI.index.param.video.ForceCompressedForDPB"
+#define OMX_QTI_INDEX_PARAM_VIDEO_ENABLE_ROIINFO "OMX.QTI.index.param.enableRoiInfo"
+#define OMX_QTI_INDEX_CONFIG_VIDEO_ROIINFO "OMX.QTI.index.config.RoiInfo"
+
 typedef enum {
     QOMX_VIDEO_FRAME_PACKING_CHECKERBOARD = 0,
     QOMX_VIDEO_FRAME_PACKING_COLUMN_INTERLEAVE = 1,
@@ -1540,6 +1741,120 @@ typedef struct QOMX_VIDEO_HIERARCHICALLAYERS {
     QOMX_VIDEO_HIERARCHICALCODINGTYPE eHierarchicalCodingType;
 } QOMX_VIDEO_HIERARCHICALLAYERS;
 
+typedef struct QOMX_VIDEO_H264ENTROPYCODINGTYPE {
+   OMX_U32 nSize;
+   OMX_VERSIONTYPE nVersion;
+   OMX_BOOL bCabac;
+   OMX_U32 nCabacInitIdc;
+} QOMX_VIDEO_H264ENTROPYCODINGTYPE;
+
+
+/* VIDEO POSTPROCESSING CTRLS AND ENUMS */
+#define QOMX_VPP_HQV_CUSTOMPAYLOAD_SZ 256
+#define VPP_HQV_CONTROL_GLOBAL_START (VPP_HQV_CONTROL_CUST + 1)
+
+typedef enum QOMX_VPP_HQV_MODE {
+    VPP_HQV_MODE_OFF,
+    VPP_HQV_MODE_AUTO,
+    VPP_HQV_MODE_MANUAL,
+    VPP_HQV_MODE_MAX
+} QOMX_VPP_HQV_MODE;
+
+typedef enum QOMX_VPP_HQVCONTROLTYPE {
+    VPP_HQV_CONTROL_CADE = 0x1,
+    VPP_HQV_CONTROL_CNR = 0x04,
+    VPP_HQV_CONTROL_AIE = 0x05,
+    VPP_HQV_CONTROL_FRC = 0x06,
+    VPP_HQV_CONTROL_CUST = 0x07,
+    VPP_HQV_CONTROL_GLOBAL_DEMO = VPP_HQV_CONTROL_GLOBAL_START,
+    VPP_HQV_CONTROL_MAX,
+} QOMX_VPP_HQVCONTROLTYPE;
+
+typedef enum QOMX_VPP_HQV_HUE_MODE {
+    VPP_HQV_HUE_MODE_OFF,
+    VPP_HQV_HUE_MODE_ON,
+    VPP_HQV_HUE_MODE_MAX,
+} QOMX_VPP_HQV_HUE_MODE;
+
+typedef enum QOMX_VPP_HQV_FRC_MODE {
+   VPP_HQV_FRC_MODE_OFF,
+   VPP_HQV_FRC_MODE_LOW,
+   VPP_HQV_FRC_MODE_MED,
+   VPP_HQV_FRC_MODE_HIGH,
+   VPP_HQV_FRC_MODE_MAX,
+} QOMX_VPP_HQV_FRC_MODE;
+
+
+typedef struct QOMX_VPP_HQVCTRL_CADE {
+    QOMX_VPP_HQV_MODE mode;
+    OMX_U32 level;
+    OMX_S32 contrast;
+    OMX_S32 saturation;
+} QOMX_VPP_HQVCTRL_CADE;
+
+typedef struct QOMX_VPP_HQVCTRL_CNR {
+    QOMX_VPP_HQV_MODE mode;
+    OMX_U32 level;
+} QOMX_VPP_HQVCTRL_CNR;
+
+typedef struct QOMX_VPP_HQVCTRL_AIE {
+    QOMX_VPP_HQV_MODE mode;
+    QOMX_VPP_HQV_HUE_MODE hue_mode;
+    OMX_U32 cade_level;
+    OMX_U32 ltm_level;
+} QOMX_VPP_HQVCTRL_AIE;
+
+typedef struct QOMX_VPP_HQVCTRL_CUSTOM {
+    OMX_U32 id;
+    OMX_U32 len;
+    OMX_U8 data[QOMX_VPP_HQV_CUSTOMPAYLOAD_SZ];
+} QOMX_VPP_HQVCTRL_CUSTOM;
+
+typedef struct QOMX_VPP_HQVCTRL_GLOBAL_DEMO {
+    OMX_U32 process_percent;
+} QOMX_VPP_HQVCTRL_GLOBAL_DEMO;
+
+typedef struct QOMX_VPP_HQVCTRL_FRC {
+    QOMX_VPP_HQV_FRC_MODE mode;
+} QOMX_VPP_HQVCTRL_FRC;
+
+typedef struct QOMX_VPP_HQVCONTROL {
+    QOMX_VPP_HQV_MODE mode;
+    QOMX_VPP_HQVCONTROLTYPE ctrl_type;
+    union {
+        QOMX_VPP_HQVCTRL_CADE cade;
+        QOMX_VPP_HQVCTRL_CNR cnr;
+        QOMX_VPP_HQVCTRL_AIE aie;
+        QOMX_VPP_HQVCTRL_CUSTOM custom;
+        QOMX_VPP_HQVCTRL_GLOBAL_DEMO global_demo;
+        QOMX_VPP_HQVCTRL_FRC frc;
+    };
+} QOMX_VPP_HQVCONTROL;
+
+/* STRUCTURE TO TURN VPP ON */
+typedef struct QOMX_VPP_ENABLE {
+    OMX_BOOL enable_vpp;
+} QOMX_VPP_ENABLE;
+
+typedef enum OMX_QOMX_VIDEO_MBISTATISTICSTYPE {
+    QOMX_MBI_STATISTICS_MODE_DEFAULT = 0,
+    QOMX_MBI_STATISTICS_MODE_1 = 0x01,
+    QOMX_MBI_STATISTICS_MODE_2 = 0x02,
+} OMX_QOMX_VIDEO_MBISTATISTICSTYPE;
+
+typedef struct OMX_QOMX_VIDEO_MBI_STATISTICS {
+    OMX_U32 nSize;
+    OMX_VERSIONTYPE nVersion;
+    OMX_U32 nPortIndex;
+    OMX_QOMX_VIDEO_MBISTATISTICSTYPE eMBIStatisticsType;
+} OMX_QOMX_VIDEO_MBI_STATISTICS;
+
+typedef struct QOMX_VIDEO_BATCHSIZETYPE {
+    OMX_U32 nSize;
+    OMX_VERSIONTYPE nVersion;
+    OMX_U32 nPortIndex;
+    OMX_U32 nBatchSize;
+} QOMX_VIDEO_BATCHSIZETYPE;
 
 #ifdef __cplusplus
 }

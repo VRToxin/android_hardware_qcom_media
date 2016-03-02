@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------------
-Copyright (c) 2010-2014, The Linux Foundation. All rights reserved.
+Copyright (c) 2010-2015, The Linux Foundation. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are
@@ -55,8 +55,10 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pthread.h>
 #include <semaphore.h>
 #include <linux/msm_vidc_enc.h>
+#include <media/hardware/HardwareAPI.h>
 #include "OMX_Core.h"
 #include "OMX_QCOMExtns.h"
+#include "OMX_Skype_VideoExtensions.h"
 #include "OMX_VideoExt.h"
 #include "OMX_IndexExt.h"
 #include "qc_omx_component.h"
@@ -108,7 +110,6 @@ static const char* MEM_DEVICE = "/dev/pmem_smipool";
 
 #define OMX_SPEC_VERSION  0x00000101
 
-
 //////////////////////////////////////////////////////////////////////////////
 //               Macros
 //////////////////////////////////////////////////////////////////////////////
@@ -139,6 +140,14 @@ static const char* MEM_DEVICE = "/dev/pmem_smipool";
 #define MAX_NUM_INPUT_BUFFERS 64
 #endif
 void* message_thread(void *);
+
+enum omx_venc_extradata_types {
+    VENC_EXTRADATA_SLICEINFO = 0x100,
+    VENC_EXTRADATA_MBINFO = 0x400,
+    VENC_EXTRADATA_FRAMEDIMENSION = 0x1000000,
+    VENC_EXTRADATA_YUV_STATS = 0x800,
+    VENC_EXTRADATA_VQZIP = 0x02000000,
+};
 
 // OMX video class
 class omx_video: public qc_omx_component
@@ -224,15 +233,17 @@ class omx_video: public qc_omx_component
         virtual bool dev_loaded_start_done(void) = 0;
         virtual bool dev_loaded_stop_done(void) = 0;
         virtual bool is_secure_session(void) = 0;
-#ifdef _MSM8974_
-        virtual int dev_handle_extradata(void*, int) = 0;
+        virtual int dev_handle_output_extradata(void*) = 0;
+        virtual int dev_handle_input_extradata(void*, int) = 0;
+        virtual void dev_set_extradata_cookie(void*) = 0;
         virtual int dev_set_format(int) = 0;
-#endif
         virtual bool dev_is_video_session_supported(OMX_U32 width, OMX_U32 height) = 0;
         virtual bool dev_get_capability_ltrcount(OMX_U32 *, OMX_U32 *, OMX_U32 *) = 0;
         virtual bool dev_get_performance_level(OMX_U32 *) = 0;
         virtual bool dev_get_vui_timing_info(OMX_U32 *) = 0;
+        virtual bool dev_get_vqzip_sei_info(OMX_U32 *) = 0;
         virtual bool dev_get_peak_bitrate(OMX_U32 *) = 0;
+        virtual bool dev_get_batch_size(OMX_U32 *) = 0;
 #ifdef _ANDROID_ICS_
         void omx_release_meta_buffer(OMX_BUFFERHEADERTYPE *buffer);
 #endif
@@ -417,7 +428,10 @@ class omx_video: public qc_omx_component
             OMX_COMPONENT_GENERATE_STOP_DONE = 0x10,
             OMX_COMPONENT_GENERATE_HARDWARE_ERROR = 0x11,
             OMX_COMPONENT_GENERATE_LTRUSE_FAILED = 0x12,
-            OMX_COMPONENT_GENERATE_ETB_OPQ = 0x13
+            OMX_COMPONENT_GENERATE_ETB_OPQ = 0x13,
+            OMX_COMPONENT_GENERATE_UNSUPPORTED_SETTING = 0x14,
+            OMX_COMPONENT_GENERATE_HARDWARE_OVERLOAD = 0x15,
+            OMX_COMPONENT_CLOSE_MSG = 0x16
         };
 
         struct omx_event {
@@ -517,7 +531,7 @@ class omx_video: public qc_omx_component
                    );
         OMX_ERRORTYPE get_supported_profile_level(OMX_VIDEO_PARAM_PROFILELEVELTYPE *profileLevelType);
         inline void omx_report_error () {
-            if (m_pCallbacks.EventHandler && !m_error_propogated) {
+            if (m_pCallbacks.EventHandler && !m_error_propogated && m_state != OMX_StateLoaded) {
                 m_error_propogated = true;
                 DEBUG_PRINT_ERROR("ERROR: send OMX_ErrorHardware to Client");
                 m_pCallbacks.EventHandler(&m_cmp,m_app_data,
@@ -527,7 +541,7 @@ class omx_video: public qc_omx_component
 
         inline void omx_report_hw_overload ()
         {
-            if (m_pCallbacks.EventHandler && !m_error_propogated) {
+            if (m_pCallbacks.EventHandler && !m_error_propogated && m_state != OMX_StateLoaded) {
                 m_error_propogated = true;
                 DEBUG_PRINT_ERROR("ERROR: send OMX_ErrorInsufficientResources to Client");
                 m_pCallbacks.EventHandler(&m_cmp, m_app_data,
@@ -536,7 +550,7 @@ class omx_video: public qc_omx_component
         }
 
         inline void omx_report_unsupported_setting () {
-            if (m_pCallbacks.EventHandler && !m_error_propogated) {
+            if (m_pCallbacks.EventHandler && !m_error_propogated && m_state != OMX_StateLoaded) {
                 m_error_propogated = true;
                 m_pCallbacks.EventHandler(&m_cmp,m_app_data,
                         OMX_EventError,OMX_ErrorUnsupportedSetting,0,NULL);
@@ -544,6 +558,7 @@ class omx_video: public qc_omx_component
         }
 
         void complete_pending_buffer_done_cbs();
+        bool is_conv_needed(int, int);
 
 #ifdef USE_ION
         int alloc_map_ion_memory(int size,
@@ -551,6 +566,10 @@ class omx_video: public qc_omx_component
                                  struct ion_fd_data *fd_data,int flag);
         void free_ion_memory(struct venc_ion *buf_ion_info);
 #endif
+
+        inline bool omx_close_msg_thread(unsigned char id) {
+            return (id == OMX_COMPONENT_CLOSE_MSG);
+        }
 
         //*************************************************************
         //*******************MEMBER VARIABLES *************************
@@ -608,7 +627,14 @@ class omx_video: public qc_omx_component
         OMX_VIDEO_CONFIG_DEINTERLACE m_sConfigDeinterlace;
         OMX_VIDEO_VP8REFERENCEFRAMETYPE m_sConfigVp8ReferenceFrame;
         QOMX_VIDEO_HIERARCHICALLAYERS m_sHierLayers;
+        OMX_QOMX_VIDEO_MBI_STATISTICS m_sMBIStatistics;
         QOMX_EXTNINDEX_VIDEO_INITIALQP m_sParamInitqp;
+        QOMX_EXTNINDEX_VIDEO_MAX_HIER_P_LAYERS m_sMaxHPlayers;
+        OMX_SKYPE_VIDEO_CONFIG_BASELAYERPID m_sBaseLayerID;
+        OMX_SKYPE_VIDEO_PARAM_DRIVERVER m_sDriverVer;
+        OMX_SKYPE_VIDEO_CONFIG_QP m_sConfigQP;
+        QOMX_EXTNINDEX_VIDEO_VENC_SAR m_sSar;
+        PrependSPSPPSToIDRFramesParams m_sPrependSPSPPS;
         OMX_U32 m_sExtraData;
         OMX_U32 m_input_msg_id;
 
@@ -646,7 +672,7 @@ class omx_video: public qc_omx_component
         OMX_U8                m_cRole[OMX_MAX_STRINGNAME_SIZE];
         extra_data_handler extra_data_handle;
         bool hw_overload;
-
+        OMX_U32 m_graphicBufferSize;
 };
 
 #endif // __OMX_VIDEO_BASE_H__

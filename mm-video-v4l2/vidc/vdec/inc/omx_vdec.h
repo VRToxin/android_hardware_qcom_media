@@ -92,6 +92,9 @@ extern "C" {
 #endif
 #include "OMX_Core.h"
 #include "OMX_QCOMExtns.h"
+#include "OMX_Skype_VideoExtensions.h"
+#include "OMX_VideoExt.h"
+#include "OMX_IndexExt.h"
 #include "qc_omx_component.h"
 #include <linux/msm_vidc_dec.h>
 #include <media/msm_vidc.h>
@@ -99,7 +102,6 @@ extern "C" {
 #ifdef MAX_RES_1080P
 #include "mp4_utils.h"
 #endif
-#include <linux/android_pmem.h>
 #include "extra_data_handler.h"
 #include "ts_parser.h"
 #include "vidc_color_converter.h"
@@ -179,7 +181,7 @@ class VideoHeap : public MemoryHeapBase
 #define DESC_BUFFER_SIZE (8192 * 16)
 
 #ifdef _ANDROID_
-#define MAX_NUM_INPUT_OUTPUT_BUFFERS 32
+#define MAX_NUM_INPUT_OUTPUT_BUFFERS 64
 #endif
 
 #define OMX_FRAMEINFO_EXTRADATA 0x00010000
@@ -191,8 +193,7 @@ class VideoHeap : public MemoryHeapBase
 #define OMX_FRAMEPACK_EXTRADATA 0x00400000
 #define OMX_QP_EXTRADATA        0x00800000
 #define OMX_BITSINFO_EXTRADATA  0x01000000
-#define OMX_MPEG2SEQDISP_EXTRADATA 0x02000000
-#define DRIVER_EXTRADATA_MASK   0x0000FFFF
+#define OMX_VQZIPSEI_EXTRADATA  0x02000000
 
 #define OMX_INTERLACE_EXTRADATA_SIZE ((sizeof(OMX_OTHER_EXTRADATATYPE) +\
             sizeof(OMX_STREAMINTERLACEFORMAT) + 3)&(~3))
@@ -208,8 +209,8 @@ class VideoHeap : public MemoryHeapBase
             sizeof(OMX_QCOM_EXTRADATA_QP) + 3)&(~3))
 #define OMX_BITSINFO_EXTRADATA_SIZE ((sizeof(OMX_OTHER_EXTRADATATYPE) +\
             sizeof(OMX_QCOM_EXTRADATA_BITS_INFO) + 3)&(~3))
-#define OMX_MPEG2SEQDISP_EXTRADATA_SIZE ((sizeof(OMX_OTHER_EXTRADATATYPE) +\
-            sizeof(OMX_QCOM_EXTRADATA_MPEG2SEQDISPLAY) + 3)&(~3))
+#define OMX_VQZIPSEI_EXTRADATA_SIZE ((sizeof(OMX_OTHER_EXTRADATATYPE) +\
+            sizeof(OMX_QCOM_EXTRADATA_VQZIPSEI) + 3)&(~3))
 #define OMX_USERDATA_EXTRADATA_SIZE ((sizeof(OMX_OTHER_EXTRADATATYPE) +\
             + 3)&(~3))
 
@@ -224,6 +225,11 @@ class VideoHeap : public MemoryHeapBase
 enum port_indexes {
     OMX_CORE_INPUT_PORT_INDEX        =0,
     OMX_CORE_OUTPUT_PORT_INDEX       =1
+};
+enum vidc_perf_level {
+    VIDC_SVS = 0,
+    VIDC_NOMINAL = 1,
+    VIDC_TURBO = 2
 };
 #ifdef USE_ION
 struct vdec_ion {
@@ -277,10 +283,6 @@ struct video_driver_context {
 #endif
 };
 
-#ifdef _ANDROID_
-class DivXDrmDecrypt;
-#endif //_ANDROID_
-
 struct video_decoder_capability {
     unsigned int min_width;
     unsigned int max_width;
@@ -291,18 +293,25 @@ struct video_decoder_capability {
 struct debug_cap {
     bool in_buffer_log;
     bool out_buffer_log;
+    bool out_meta_buffer_log;
     char infile_name[PROPERTY_VALUE_MAX + 36];
     char outfile_name[PROPERTY_VALUE_MAX + 36];
+    char out_ymetafile_name[PROPERTY_VALUE_MAX + 36];
+    char out_uvmetafile_name[PROPERTY_VALUE_MAX + 36];
     char log_loc[PROPERTY_VALUE_MAX];
     FILE *infile;
     FILE *outfile;
+    FILE *out_ymeta_file;
+    FILE *out_uvmeta_file;
 };
 
 struct dynamic_buf_list {
-    OMX_U32 fd;
-    OMX_U32 dup_fd;
+    long fd;
+    long dup_fd;
     OMX_U32 offset;
     OMX_U32 ref_count;
+    void *buffaddr;
+    long mapped_size;
 };
 
 // OMX video decoder class
@@ -431,6 +440,7 @@ class omx_vdec: public qc_omx_component
                 void *               eglImage);
         void complete_pending_buffer_done_cbs();
         struct video_driver_context drv_ctx;
+        int m_poll_efd;
 #ifdef _MSM8974_
         OMX_ERRORTYPE allocate_extradata();
         void free_extradata();
@@ -442,8 +452,13 @@ class omx_vdec: public qc_omx_component
         pthread_t msg_thread_id;
         pthread_t async_thread_id;
         bool is_component_secure();
-        void buf_ref_add(OMX_U32 fd, OMX_U32 offset);
-        void buf_ref_remove(OMX_U32 fd, OMX_U32 offset);
+        void buf_ref_add(int nPortIndex);
+        void buf_ref_remove();
+        OMX_ERRORTYPE set_dpb(bool is_split_mode, int dpb_color_format);
+        OMX_ERRORTYPE decide_dpb_buffer_mode(bool force_split_mode);
+        void request_perf_level(enum vidc_perf_level perf_level);
+        int dpb_bit_depth;
+        bool async_thread_force_stop;
 
     private:
         // Bit Positions
@@ -470,7 +485,8 @@ class omx_vdec: public qc_omx_component
             OMX_COMPONENT_PAUSE_PENDING          =0xB,
             OMX_COMPONENT_EXECUTE_PENDING        =0xC,
             OMX_COMPONENT_OUTPUT_FLUSH_IN_DISABLE_PENDING =0xD,
-            OMX_COMPONENT_DISABLE_OUTPUT_DEFERRED=0xE
+            OMX_COMPONENT_DISABLE_OUTPUT_DEFERRED=0xE,
+            OMX_COMPONENT_FLUSH_DEFERRED = 0xF
         };
 
         // Deferred callback identifiers
@@ -508,6 +524,7 @@ class omx_vdec: public qc_omx_component
             OMX_COMPONENT_GENERATE_INFO_FIELD_DROPPED = 0x16,
             OMX_COMPONENT_GENERATE_UNSUPPORTED_SETTING = 0x17,
             OMX_COMPONENT_GENERATE_HARDWARE_OVERLOAD = 0x18,
+            OMX_COMPONENT_CLOSE_MSG = 0x19
         };
 
         enum vc1_profile_type {
@@ -543,7 +560,7 @@ class omx_vdec: public qc_omx_component
             unsigned get_q_msg_type();
 
         };
-
+        struct v4l2_capability cap;
 #ifdef _ANDROID_
         struct ts_entry {
             OMX_TICKS timestamp;
@@ -600,12 +617,7 @@ class omx_vdec: public qc_omx_component
                 OMX_PTR                appData,
                 OMX_U32                bytes,
                 OMX_U8                 *buffer);
-#ifdef MAX_RES_720P
-        OMX_ERRORTYPE get_supported_profile_level_for_720p(OMX_VIDEO_PARAM_PROFILELEVELTYPE *profileLevelType);
-#endif
-#ifdef MAX_RES_1080P
-        OMX_ERRORTYPE get_supported_profile_level_for_1080p(OMX_VIDEO_PARAM_PROFILELEVELTYPE *profileLevelType);
-#endif
+        OMX_ERRORTYPE get_supported_profile_level(OMX_VIDEO_PARAM_PROFILELEVELTYPE *profileLevelType);
 
         OMX_ERRORTYPE allocate_desc_buffer(OMX_U32 index);
         OMX_ERRORTYPE allocate_output_headers();
@@ -685,8 +697,8 @@ class omx_vdec: public qc_omx_component
                 struct msm_vidc_frame_qp_payload *qp_payload);
         void append_bitsinfo_extradata(OMX_OTHER_EXTRADATATYPE *extra,
                 struct msm_vidc_frame_bits_info_payload *bits_payload);
-        void append_mpeg2_seqdisplay_extradata(OMX_OTHER_EXTRADATATYPE *extra,
-                struct msm_vidc_mpeg2_seqdisp_payload* seq_display_payload);
+        void append_vqzip_extradata(OMX_OTHER_EXTRADATATYPE *extra,
+                struct msm_vidc_vqzip_sei_payload *vqzip_payload);
         void insert_demux_addr_offset(OMX_U32 address_offset);
         void extract_demux_addr_offsets(OMX_BUFFERHEADERTYPE *buf_hdr);
         OMX_ERRORTYPE handle_demux_data(OMX_BUFFERHEADERTYPE *buf_hdr);
@@ -728,7 +740,7 @@ class omx_vdec: public qc_omx_component
 #endif
 
         inline void omx_report_error () {
-            if (m_cb.EventHandler && !m_error_propogated) {
+            if (m_cb.EventHandler && !m_error_propogated && m_state != OMX_StateLoaded) {
                 DEBUG_PRINT_ERROR("ERROR: Sending OMX_ErrorHardware to Client");
                 m_error_propogated = true;
                 m_cb.EventHandler(&m_cmp,m_app_data,
@@ -737,7 +749,7 @@ class omx_vdec: public qc_omx_component
         }
 
         inline void omx_report_unsupported_setting () {
-            if (m_cb.EventHandler && !m_error_propogated) {
+            if (m_cb.EventHandler && !m_error_propogated && m_state != OMX_StateLoaded) {
                 DEBUG_PRINT_ERROR(
                         "ERROR: Sending OMX_ErrorUnsupportedSetting to Client");
                 m_error_propogated = true;
@@ -746,7 +758,7 @@ class omx_vdec: public qc_omx_component
             }
         }
         inline void omx_report_hw_overload () {
-            if (m_cb.EventHandler && !m_error_propogated) {
+            if (m_cb.EventHandler && !m_error_propogated && m_state != OMX_StateLoaded) {
                 DEBUG_PRINT_ERROR(
                         "ERROR: Sending OMX_ErrorInsufficientResources to Client");
                 m_error_propogated = true;
@@ -755,9 +767,6 @@ class omx_vdec: public qc_omx_component
             }
         }
 
-#ifdef _ANDROID_
-        OMX_ERRORTYPE createDivxDrmContext();
-#endif //_ANDROID_
 #if defined (_ANDROID_HONEYCOMB_) || defined (_ANDROID_ICS_)
         OMX_ERRORTYPE use_android_native_buffer(OMX_IN OMX_HANDLETYPE hComp, OMX_PTR data);
 #endif
@@ -770,7 +779,12 @@ class omx_vdec: public qc_omx_component
         nativebuffer native_buffer[MAX_NUM_INPUT_OUTPUT_BUFFERS];
 #endif
 
+public:
+        inline bool omx_close_msg_thread(unsigned char id) {
+            return (id == OMX_COMPONENT_CLOSE_MSG);
+        }
 
+private:
         //*************************************************************
         //*******************MEMBER VARIABLES *************************
         //*************************************************************
@@ -826,7 +840,7 @@ class omx_vdec: public qc_omx_component
         //Output port Populated
         OMX_BOOL m_out_bPopulated;
         // encapsulate the waiting states.
-        unsigned int m_flags;
+        uint64_t m_flags;
 
 #ifdef _ANDROID_
         // Heap pointer to frame buffers
@@ -882,8 +896,8 @@ class omx_vdec: public qc_omx_component
         OMX_U32 m_demux_entries;
         OMX_U32 m_disp_hor_size;
         OMX_U32 m_disp_vert_size;
-
         OMX_S64 prev_ts;
+        OMX_S64 prev_ts_actual;
         bool rst_prev_ts;
         OMX_U32 frm_int;
 
@@ -926,9 +940,6 @@ class omx_vdec: public qc_omx_component
         };
         meta_buffer meta_buff;
         extra_data_handler extra_data_handle;
-#ifdef _ANDROID_
-        DivXDrmDecrypt* iDivXDrmDecrypt;
-#endif //_ANDROID_
         OMX_PARAM_PORTDEFINITIONTYPE m_port_def;
         OMX_QCOM_FRAME_PACK_ARRANGEMENT m_frame_pack_arrangement;
         omx_time_stamp_reorder time_stamp_dts;
@@ -947,6 +958,7 @@ class omx_vdec: public qc_omx_component
         OMX_CONFIG_RECTTYPE rectangle;
         OMX_U32 prev_n_filled_len;
         bool is_down_scalar_enabled;
+        bool m_force_down_scalar;
 #endif
         struct custom_buffersize {
             OMX_U32 input_buffersize;
@@ -964,12 +976,23 @@ class omx_vdec: public qc_omx_component
         //variables to handle dynamic buffer mode
         bool dynamic_buf_mode;
         struct dynamic_buf_list *out_dynamic_list;
+        OMX_U32 m_reconfig_width;
+        OMX_U32 m_reconfig_height;
         bool m_smoothstreaming_mode;
+
+        bool m_input_pass_buffer_fd;
+
         OMX_U32 m_smoothstreaming_width;
         OMX_U32 m_smoothstreaming_height;
         OMX_ERRORTYPE enable_smoothstreaming();
         OMX_ERRORTYPE enable_adaptive_playback(unsigned long width, unsigned long height);
         bool is_thulium_v1;
+        static bool m_disable_ubwc_mode;
+        OMX_U32 m_downscalar_width;
+        OMX_U32 m_downscalar_height;
+        int decide_downscalar();
+        int enable_downscalar();
+        int disable_downscalar();
 
         unsigned int m_fill_output_msg;
         bool client_set_fps;
@@ -995,7 +1018,7 @@ class omx_vdec: public qc_omx_component
                 OMX_ERRORTYPE free_output_buffer(OMX_BUFFERHEADERTYPE *bufferHdr);
                 bool is_color_conversion_enabled() {return enabled;}
             private:
-#define MAX_COUNT 32
+#define MAX_COUNT MAX_NUM_INPUT_OUTPUT_BUFFERS
                 omx_vdec *omx;
                 bool enabled;
                 OMX_COLOR_FORMATTYPE ColorFormat;
@@ -1014,7 +1037,7 @@ class omx_vdec: public qc_omx_component
                 struct vdec_ion op_buf_ion_info[MAX_COUNT];
 #endif
                 unsigned char *pmem_baseaddress[MAX_COUNT];
-                unsigned long pmem_fd[MAX_COUNT];
+                int pmem_fd[MAX_COUNT];
                 struct vidc_heap {
                     sp<MemoryHeapBase>    video_heap_ptr;
                 };
@@ -1040,7 +1063,30 @@ class omx_vdec: public qc_omx_component
 #endif
         OMX_TICKS m_last_rendered_TS;
         volatile int32_t m_queued_codec_config_count;
+        OMX_U32 current_perf_level;
         bool secure_scaling_to_non_secure_opb;
+	bool m_force_compressed_for_dpb;
+        class perf_lock {
+            private:
+                pthread_mutex_t mlock;
+
+            public:
+                perf_lock() {
+                    pthread_mutex_init(&mlock, NULL);
+                }
+
+                ~perf_lock() {
+                    pthread_mutex_destroy(&mlock);
+                }
+
+                void lock() {
+                    pthread_mutex_lock(&mlock);
+                }
+
+                void unlock() {
+                    pthread_mutex_unlock(&mlock);
+                }
+        };
 
         class perf_control {
             // 2 cores will be requested if framerate is beyond 45 fps
@@ -1048,17 +1094,25 @@ class omx_vdec: public qc_omx_component
             typedef int (*perf_lock_acquire_t)(int, int, int*, int);
             typedef int (*perf_lock_release_t)(int);
 
-            public:
-                perf_control();
-                ~perf_control();
-                void request_cores(int frame_duration_us);
             private:
                 void *m_perf_lib;
                 int m_perf_handle;
                 perf_lock_acquire_t m_perf_lock_acquire;
                 perf_lock_release_t m_perf_lock_release;
-                //void (*perf_cpu_boost)(int ntasks);
-                void load_lib();
+                bool load_lib();
+                struct mpctl_stats {
+                  int vid_inst_count;
+                  bool vid_acquired;
+                  int vid_disp_handle;
+                };
+                static struct mpctl_stats mpctl_obj;
+                static perf_lock m_perf_lock;
+
+            public:
+                perf_control();
+                ~perf_control();
+                void request_cores(int frame_duration_us);
+                void send_hint_to_mpctl(bool state);
         };
         perf_control m_perf_control;
 
@@ -1078,25 +1132,33 @@ class omx_vdec: public qc_omx_component
 
         static OMX_COLOR_FORMATTYPE getPreferredColorFormatDefaultMode(OMX_U32 index) {
             //for surface mode (normal playback), advertise native/accelerated formats first
-#if _UBWC_
-            OMX_COLOR_FORMATTYPE formatsDefault[] = {
-                [0] = (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FORMATYUV420PackedSemiPlanar32mCompressed,
-                [1] = (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m,
-                [2] = OMX_COLOR_FormatYUV420Planar,
-                [3] = OMX_COLOR_FormatYUV420SemiPlanar,
-                [4] = (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FORMATYUV420PackedSemiPlanar32mMultiView,
-            };
-#else
-            OMX_COLOR_FORMATTYPE formatsDefault[] = {
-                [0] = (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m,
-                [1] = OMX_COLOR_FormatYUV420Planar,
-                [2] = OMX_COLOR_FormatYUV420SemiPlanar,
-                [3] = (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FORMATYUV420PackedSemiPlanar32mMultiView,
-            };
-#endif
-            return (index < sizeof(formatsDefault) / sizeof(OMX_COLOR_FORMATTYPE)) ?
-                formatsDefault[index] : OMX_COLOR_FormatMax;
+            OMX_COLOR_FORMATTYPE format = (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m;
+
+            if (!omx_vdec::m_disable_ubwc_mode) {
+                OMX_COLOR_FORMATTYPE formatsDefault[] = {
+                    [0] = (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FORMATYUV420PackedSemiPlanar32mCompressed,
+                    [1] = (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m,
+                    [2] = OMX_COLOR_FormatYUV420SemiPlanar,
+                    [3] = OMX_COLOR_FormatYUV420Planar,
+                    [4] = (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FORMATYUV420PackedSemiPlanar32mMultiView,
+                };
+                format = (index < sizeof(formatsDefault) / sizeof(OMX_COLOR_FORMATTYPE)) ?
+                    formatsDefault[index] : OMX_COLOR_FormatMax;
+            } else {
+                OMX_COLOR_FORMATTYPE formatsDefault[] = {
+                    [0] = (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m,
+                    [1] = OMX_COLOR_FormatYUV420SemiPlanar,
+                    [2] = OMX_COLOR_FormatYUV420Planar,
+                    [3] = (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FORMATYUV420PackedSemiPlanar32mMultiView,
+                };
+                format = (index < sizeof(formatsDefault) / sizeof(OMX_COLOR_FORMATTYPE)) ?
+                    formatsDefault[index] : OMX_COLOR_FormatMax;
+            }
+            return format;
         }
+
+        static OMX_ERRORTYPE describeColorFormat(OMX_PTR params);
+
 };
 
 #ifdef _MSM8974_

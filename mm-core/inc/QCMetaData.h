@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -36,6 +36,7 @@ namespace android {
 enum {
     kKeyAacCodecSpecificData = 'nacc' , // for native aac files
 
+#if 0
     kKeyRawCodecSpecificData = 'rcsd',  // raw data - added to support mmParser
     kKeyDivXVersion          = 'DivX',  // int32_t
     kKeyDivXDrm              = 'QDrm',  // void *
@@ -47,7 +48,9 @@ enum {
     kKeyWMAFormatTag         = 'fmtt',  // int64_t
     kKeyWMABitspersample     = 'bsps',  // int64_t
     kKeyWMAVirPktSize        = 'vpks',  // int64_t
+#endif
     kKeyWMAChannelMask       = 'chmk',  // int32_t
+    kKeyVorbisData           = 'vdat',  // raw data
 
     kKeyFileFormat           = 'ffmt',  // cstring
 
@@ -65,15 +68,20 @@ enum {
     kKeyHFR                  = 'hfr ',  // int32_t
     kKeyHSR                  = 'hsr ',  // int32_t
 
-    kKeySampleBits        = 'sbit', // int32_t (audio sample bit-width)
-    kKeyPcmFormat         = 'pfmt', //int32_t (pcm format)
-    kKeyMinBlkSize        = 'mibs', //int32_t
-    kKeyMaxBlkSize        = 'mabs', //int32_t
-    kKeyMinFrmSize        = 'mifs', //int32_t
-    kKeyMaxFrmSize        = 'mafs', //int32_t
-    kKeyMd5Sum            = 'md5s', //cstring
+    kKeySampleBits           = 'sbit', // int32_t (audio sample bit-width)
+    kKeyPcmFormat            = 'pfmt', //int32_t (pcm format)
+    kKeyMinBlkSize           = 'mibs', //int32_t
+    kKeyMaxBlkSize           = 'mabs', //int32_t
+    kKeyMinFrmSize           = 'mifs', //int32_t
+    kKeyMaxFrmSize           = 'mafs', //int32_t
+    kKeyMd5Sum               = 'md5s', //cstring
+
+    kKeyBatchSize            = 'btch', //int32_t
+    kKeyIsByteMode           = 'bytm', //int32_t
+    kKeyUseSetBuffers        = 'setb', //bool (int32_t)
 };
 
+#if 0
 enum {
     kTypeDivXVer_3_11,
     kTypeDivXVer_4,
@@ -85,11 +93,17 @@ enum {
     kTypeWMAPro,
     kTypeWMALossLess,
 };
+#endif
 
 //This enum should be keep in sync with "enum Flags" in MediaExtractor.h in AOSP,
 //Value should reflect as last entry in the enum
 enum {
     CAN_SEEK_TO_ZERO   = 16, // the "previous button"
+};
+
+enum {
+    USE_SET_BUFFERS = 0x1,
+    USE_AUDIO_BIG_BUFFERS = 0x2,
 };
 }  // namespace android
 

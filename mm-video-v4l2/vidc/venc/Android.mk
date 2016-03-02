@@ -37,12 +37,20 @@ libmm-venc-def += -DMAX_RES_1080P_EBI
 endif
 endif
 
+ifeq ($(TARGET_BOARD_PLATFORM),msm8996)
+libmm-venc-def += -D_UBWC_
+endif
+
 ifeq ($(call is-board-platform-in-list, $(TARGETS_THAT_USE_FLAG_MSM8226)),true)
 libmm-venc-def += -D_MSM8226_
 endif
 
 ifeq ($(TARGET_USES_ION),true)
 libmm-venc-def += -DUSE_ION
+endif
+
+ifeq ($(call is-board-platform-in-list, $(MASTER_SIDE_CP_TARGET_LIST)),true)
+libmm-venc-def += -DMASTER_SIDE_CP
 endif
 
 # Common Includes
@@ -55,6 +63,7 @@ libmm-venc-inc      += $(TARGET_OUT_HEADERS)/adreno
 libmm-venc-inc      += frameworks/native/include/media/hardware
 libmm-venc-inc      += frameworks/native/include/media/openmax
 libmm-venc-inc      += $(call project-path-for,qcom-media)/libc2dcolorconvert
+libmm-venc-inc      += $(TARGET_OUT_HEADERS)/libvqzip
 libmm-venc-inc      += frameworks/av/include/media/stagefright
 libmm-venc-inc      += $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr/include
 
@@ -68,6 +77,7 @@ libmm-venc-add-dep  := $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr
 include $(CLEAR_VARS)
 
 LOCAL_MODULE                    := libOmxVenc
+LOCAL_CLANG := false
 LOCAL_MODULE_TAGS               := optional
 LOCAL_CFLAGS                    := $(libmm-venc-def)
 LOCAL_C_INCLUDES                := $(libmm-venc-inc)

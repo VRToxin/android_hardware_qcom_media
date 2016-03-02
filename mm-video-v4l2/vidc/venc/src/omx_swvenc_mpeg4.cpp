@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------------
-Copyright (c) 2014, The Linux Foundation. All rights reserved.
+Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -79,7 +79,7 @@ omx_venc::omx_venc()
     property_get("vidc.enc.log.out", property_value, "0");
     m_debug.out_buffer_log = atoi(property_value);
 
-    sprintf(m_debug.log_loc, "%s", BUFFER_LOG_LOC);
+    snprintf(m_debug.log_loc, PROPERTY_VALUE_MAX, "%s", BUFFER_LOG_LOC);
     property_value[0] = '\0';
     property_get("vidc.log.loc", property_value, "");
     if (*property_value)
@@ -95,6 +95,7 @@ omx_venc::omx_venc()
     mUseProxyColorFormat = false;
     get_syntaxhdr_enable = false;
     m_bSeqHdrRequested = false;
+    format_set = false;
 
     EXIT_FUNC();
 }
@@ -518,12 +519,12 @@ OMX_ERRORTYPE  omx_venc::set_parameter
                     omx_report_unsupported_setting();
                     RETURN(OMX_ErrorUnsupportedSetting);
                 }
-                DEBUG_PRINT_LOW("i/p actual cnt requested = %lu", portDefn->nBufferCountActual);
-                DEBUG_PRINT_LOW("i/p min cnt requested = %lu", portDefn->nBufferCountMin);
-                DEBUG_PRINT_LOW("i/p buffersize requested = %lu", portDefn->nBufferSize);
+                DEBUG_PRINT_LOW("i/p actual cnt requested = %u", portDefn->nBufferCountActual);
+                DEBUG_PRINT_LOW("i/p min cnt requested = %u", portDefn->nBufferCountMin);
+                DEBUG_PRINT_LOW("i/p buffersize requested = %u", portDefn->nBufferSize);
                 if (portDefn->nBufferCountMin > portDefn->nBufferCountActual)
                 {
-                    DEBUG_PRINT_ERROR("ERROR: (In_PORT) Min buffers (%lu) > actual count (%lu)",
+                    DEBUG_PRINT_ERROR("ERROR: (In_PORT) Min buffers (%u) > actual count (%u)",
                             portDefn->nBufferCountMin, portDefn->nBufferCountActual);
                     RETURN(OMX_ErrorUnsupportedSetting);
                 }
@@ -574,21 +575,10 @@ OMX_ERRORTYPE  omx_venc::set_parameter
                    RETURN(OMX_ErrorUnsupportedSetting);
                 }
 
-                DEBUG_PRINT_LOW("i/p previous actual cnt = %lu", m_sInPortDef.nBufferCountActual);
-                DEBUG_PRINT_LOW("i/p previous min cnt = %lu", m_sInPortDef.nBufferCountMin);
-                DEBUG_PRINT_LOW("i/p previous buffersize = %lu", m_sInPortDef.nBufferSize);
+                DEBUG_PRINT_LOW("i/p previous actual cnt = %u", m_sInPortDef.nBufferCountActual);
+                DEBUG_PRINT_LOW("i/p previous min cnt = %u", m_sInPortDef.nBufferCountMin);
+                DEBUG_PRINT_LOW("i/p previous buffersize = %u", m_sInPortDef.nBufferSize);
 
-                /* set the buffer requirement */
-                bResult = dev_set_buf_req(&portDefn->nBufferCountMin,
-                  &portDefn->nBufferCountActual,
-                  &portDefn->nBufferSize,
-                  portDefn->nPortIndex);
-                if (bResult != true)
-                {
-                   DEBUG_PRINT_ERROR("%s, dev_set_buf_req failed",
-                     __FUNCTION__);
-                   RETURN(OMX_ErrorUnsupportedSetting);
-                }
                 memcpy(&m_sInPortDef, portDefn,sizeof(OMX_PARAM_PORTDEFINITIONTYPE));
 
                 /* update the input buffer requirement */
@@ -613,18 +603,18 @@ OMX_ERRORTYPE  omx_venc::set_parameter
                    m_sInPortDef.nBufferSize = portDefn->nBufferSize;
                 }
 
-                DEBUG_PRINT_LOW("i/p new actual cnt = %lu", m_sInPortDef.nBufferCountActual);
-                DEBUG_PRINT_LOW("i/p new min cnt = %lu", m_sInPortDef.nBufferCountMin);
-                DEBUG_PRINT_LOW("i/p new buffersize = %lu", m_sInPortDef.nBufferSize);
+                DEBUG_PRINT_LOW("i/p new actual cnt = %u", m_sInPortDef.nBufferCountActual);
+                DEBUG_PRINT_LOW("i/p new min cnt = %u", m_sInPortDef.nBufferCountMin);
+                DEBUG_PRINT_LOW("i/p new buffersize = %u", m_sInPortDef.nBufferSize);
             }
             else if (PORT_INDEX_OUT == portDefn->nPortIndex)
             {
-                DEBUG_PRINT_LOW("o/p actual cnt requested = %lu", portDefn->nBufferCountActual);
-                DEBUG_PRINT_LOW("o/p min cnt requested = %lu", portDefn->nBufferCountMin);
-                DEBUG_PRINT_LOW("o/p buffersize requested = %lu", portDefn->nBufferSize);
+                DEBUG_PRINT_LOW("o/p actual cnt requested = %u", portDefn->nBufferCountActual);
+                DEBUG_PRINT_LOW("o/p min cnt requested = %u", portDefn->nBufferCountMin);
+                DEBUG_PRINT_LOW("o/p buffersize requested = %u", portDefn->nBufferSize);
                 if (portDefn->nBufferCountMin > portDefn->nBufferCountActual)
                 {
-                    DEBUG_PRINT_ERROR("ERROR: (Out_PORT) Min buffers (%lu) > actual count (%lu)",
+                    DEBUG_PRINT_ERROR("ERROR: (Out_PORT) Min buffers (%u) > actual count (%u)",
                             portDefn->nBufferCountMin, portDefn->nBufferCountActual);
                     RETURN(OMX_ErrorUnsupportedSetting);
                 }
@@ -638,9 +628,9 @@ OMX_ERRORTYPE  omx_venc::set_parameter
                    RETURN(OMX_ErrorUnsupportedSetting);
                 }
 
-                DEBUG_PRINT_LOW("o/p previous actual cnt = %lu", m_sOutPortDef.nBufferCountActual);
-                DEBUG_PRINT_LOW("o/p previous min cnt = %lu", m_sOutPortDef.nBufferCountMin);
-                DEBUG_PRINT_LOW("o/p previous buffersize = %lu", m_sOutPortDef.nBufferSize);
+                DEBUG_PRINT_LOW("o/p previous actual cnt = %u", m_sOutPortDef.nBufferCountActual);
+                DEBUG_PRINT_LOW("o/p previous min cnt = %u", m_sOutPortDef.nBufferCountMin);
+                DEBUG_PRINT_LOW("o/p previous buffersize = %u", m_sOutPortDef.nBufferSize);
 
                 /* set the buffer requirement */
                 bResult = dev_set_buf_req(&portDefn->nBufferCountMin,
@@ -677,9 +667,9 @@ OMX_ERRORTYPE  omx_venc::set_parameter
                    m_sOutPortDef.nBufferSize = portDefn->nBufferSize;
                 }
 
-                DEBUG_PRINT_LOW("o/p new actual cnt = %lu", m_sOutPortDef.nBufferCountActual);
-                DEBUG_PRINT_LOW("o/p new min cnt = %lu", m_sOutPortDef.nBufferCountMin);
-                DEBUG_PRINT_LOW("o/p new buffersize = %lu", m_sOutPortDef.nBufferSize);
+                DEBUG_PRINT_LOW("o/p new actual cnt = %u", m_sOutPortDef.nBufferCountActual);
+                DEBUG_PRINT_LOW("o/p new min cnt = %u", m_sOutPortDef.nBufferCountMin);
+                DEBUG_PRINT_LOW("o/p new buffersize = %u", m_sOutPortDef.nBufferSize);
             }
             else
             {
@@ -699,15 +689,18 @@ OMX_ERRORTYPE  omx_venc::set_parameter
                 (OMX_VIDEO_PARAM_PORTFORMATTYPE *)paramData;
             DEBUG_PRINT_LOW("set_parameter: OMX_IndexParamVideoPortFormat %d",
                     portFmt->eColorFormat);
+            SWVENC_COLOR_FORMAT color_format;
 
             /* set the driver with the corresponding values */
             if (PORT_INDEX_IN == portFmt->nPortIndex)
             {
-                if (portFmt->eColorFormat == (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FormatAndroidOpaque)
+                if (portFmt->eColorFormat ==
+                    ((OMX_COLOR_FORMATTYPE) QOMX_COLOR_FormatAndroidOpaque))
                 {
                     /* meta_mode = 2 (kMetadataBufferTypeGrallocSource) */
-                    m_sInPortFormat.eColorFormat = (OMX_COLOR_FORMATTYPE)
-                            QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m;
+                    m_sInPortFormat.eColorFormat =
+                        (OMX_COLOR_FORMATTYPE) QOMX_COLOR_FormatYVU420SemiPlanar;
+                    color_format = SWVENC_COLOR_FORMAT_NV21;
                     if (!mUseProxyColorFormat)
                     {
                        if (!c2d_conv.init())
@@ -723,6 +716,24 @@ OMX_ERRORTYPE  omx_venc::set_parameter
                 else
                 {
                     m_sInPortFormat.eColorFormat = portFmt->eColorFormat;
+                    if ((portFmt->eColorFormat == OMX_COLOR_FormatYUV420SemiPlanar) ||
+                        (portFmt->eColorFormat ==
+                         ((OMX_COLOR_FORMATTYPE) QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m)))
+                    {
+                        color_format = SWVENC_COLOR_FORMAT_NV12;
+                    }
+                    else if (portFmt->eColorFormat ==
+                             ((OMX_COLOR_FORMATTYPE) QOMX_COLOR_FormatYVU420SemiPlanar))
+                    {
+                        color_format = SWVENC_COLOR_FORMAT_NV21;
+                    }
+                    else
+                    {
+                        DEBUG_PRINT_ERROR("%s: OMX_IndexParamVideoPortFormat %d invalid",
+                                          __FUNCTION__,
+                                          portFmt->eColorFormat);
+                        RETURN(OMX_ErrorBadParameter);
+                    }
                     m_input_msg_id = OMX_COMPONENT_GENERATE_ETB;
                     mUseProxyColorFormat = false;
                 }
@@ -731,7 +742,7 @@ OMX_ERRORTYPE  omx_venc::set_parameter
 
                 /* set the input color format */
                 Prop.id = SWVENC_PROPERTY_ID_COLOR_FORMAT;
-                Prop.info.color_format = SWVENC_COLOR_FORMAT_NV12;
+                Prop.info.color_format = color_format;
                 Ret = swvenc_setproperty(m_hSwVenc, &Prop);
                 if (Ret != SWVENC_S_SUCCESS)
                 {
@@ -796,7 +807,7 @@ OMX_ERRORTYPE  omx_venc::set_parameter
             m_sConfigBitrate.nEncodeBitrate = pParam->nTargetBitrate;
             m_sInPortDef.format.video.nBitrate = pParam->nTargetBitrate;
             m_sOutPortDef.format.video.nBitrate = pParam->nTargetBitrate;
-            DEBUG_PRINT_LOW("bitrate = %lu", m_sOutPortDef.format.video.nBitrate);
+            DEBUG_PRINT_LOW("bitrate = %u", m_sOutPortDef.format.video.nBitrate);
             break;
         }
 
@@ -941,10 +952,10 @@ OMX_ERRORTYPE  omx_venc::set_parameter
                 RETURN(OMX_ErrorIncorrectStateOperation);
             }
             OMX_PRIORITYMGMTTYPE *priorityMgmtype = (OMX_PRIORITYMGMTTYPE*) paramData;
-            DEBUG_PRINT_LOW("set_parameter: OMX_IndexParamPriorityMgmt %lu",
+            DEBUG_PRINT_LOW("set_parameter: OMX_IndexParamPriorityMgmt %u",
                     priorityMgmtype->nGroupID);
 
-            DEBUG_PRINT_LOW("set_parameter: priorityMgmtype %lu",
+            DEBUG_PRINT_LOW("set_parameter: priorityMgmtype %u",
                     priorityMgmtype->nGroupPriority);
 
             m_sPriorityMgmt.nGroupID = priorityMgmtype->nGroupID;
@@ -1133,10 +1144,17 @@ OMX_ERRORTYPE  omx_venc::set_parameter
                Prop.info.slice_config.mode = SWVENC_SLICE_MODE_BYTE;
                Prop.info.slice_config.size = pParam->nResynchMarkerSpacing;
             }
-            else if ( (SWVENC_CODEC_H263 == m_codec) && (pParam->bEnableDataPartitioning) )
+            else if ( (SWVENC_CODEC_H263 == m_codec) && (pParam->bEnableResync) )
             {
                Prop.info.slice_config.mode = SWVENC_SLICE_MODE_GOB;
                Prop.info.slice_config.size = 0;
+               Ret = swvenc_setproperty(m_hSwVenc, &Prop);
+               if (Ret != SWVENC_S_SUCCESS)
+               {
+                  DEBUG_PRINT_ERROR("%s, swvenc_setproperty failed (%d)",
+                    __FUNCTION__, Ret);
+                  RETURN(OMX_ErrorUndefined);
+               }
             }
             else
             {
@@ -1171,7 +1189,7 @@ OMX_ERRORTYPE  omx_venc::set_parameter
             StoreMetaDataInBuffersParams *pParam =
                 (StoreMetaDataInBuffersParams*)paramData;
             DEBUG_PRINT_HIGH("set_parameter:OMX_QcomIndexParamVideoMetaBufferMode: "
-                    "port_index = %lu, meta_mode = %d", pParam->nPortIndex, pParam->bStoreMetaData);
+                    "port_index = %u, meta_mode = %d", pParam->nPortIndex, pParam->bStoreMetaData);
 
             if (pParam->nPortIndex == PORT_INDEX_IN)
             {
@@ -1295,8 +1313,8 @@ OMX_ERRORTYPE  omx_venc::set_parameter
                    break;
                 }
 
-                DEBUG_PRINT_HIGH("updated out_buf_req: buffer cnt=%lu, "
-                        "count min=%lu, buffer size=%lu",
+                DEBUG_PRINT_HIGH("updated out_buf_req: buffer cnt=%u, "
+                        "count min=%u, buffer size=%u",
                         m_sOutPortDef.nBufferCountActual,
                         m_sOutPortDef.nBufferCountMin,
                         m_sOutPortDef.nBufferSize);
@@ -1318,7 +1336,7 @@ OMX_ERRORTYPE  omx_venc::set_parameter
             else
             {
                 DEBUG_PRINT_ERROR("ERROR: OMX_QcomIndexParamVideoMaxAllowedBitrateCheck "
-                        " called on wrong port(%lu)", pParam->nPortIndex);
+                        " called on wrong port(%u)", pParam->nPortIndex);
                 RETURN(OMX_ErrorBadPortIndex);
             }
             break;
@@ -1346,7 +1364,7 @@ OMX_ERRORTYPE  omx_venc::set_parameter
             else
             {
                 DEBUG_PRINT_ERROR("ERROR: OMX_QcomIndexEnableSliceDeliveryMode "
-                        "called on wrong port(%lu)", pParam->nPortIndex);
+                        "called on wrong port(%u)", pParam->nPortIndex);
                 RETURN(OMX_ErrorBadPortIndex);
             }
             break;
@@ -1365,7 +1383,7 @@ OMX_ERRORTYPE  omx_venc::set_parameter
             else
             {
                 DEBUG_PRINT_ERROR("ERROR: OMX_QcomIndexEnableH263PlusPType "
-                        "called on wrong port(%lu)", pParam->nPortIndex);
+                        "called on wrong port(%u)", pParam->nPortIndex);
                 RETURN(OMX_ErrorBadPortIndex);
             }
             break;
@@ -1436,7 +1454,7 @@ OMX_ERRORTYPE  omx_venc::set_config
         {
             OMX_VIDEO_CONFIG_BITRATETYPE* pParam =
                 reinterpret_cast<OMX_VIDEO_CONFIG_BITRATETYPE*>(configData);
-            DEBUG_PRINT_HIGH("set_config(): OMX_IndexConfigVideoBitrate (%lu)", pParam->nEncodeBitrate);
+            DEBUG_PRINT_HIGH("set_config(): OMX_IndexConfigVideoBitrate (%u)", pParam->nEncodeBitrate);
 
             if (pParam->nPortIndex == PORT_INDEX_OUT)
             {
@@ -1454,7 +1472,7 @@ OMX_ERRORTYPE  omx_venc::set_config
             }
             else
             {
-                DEBUG_PRINT_ERROR("ERROR: Unsupported port index: %lu", pParam->nPortIndex);
+                DEBUG_PRINT_ERROR("ERROR: Unsupported port index: %u", pParam->nPortIndex);
                 RETURN(OMX_ErrorBadPortIndex);
             }
             break;
@@ -1463,7 +1481,7 @@ OMX_ERRORTYPE  omx_venc::set_config
         {
             OMX_CONFIG_FRAMERATETYPE* pParam =
                 reinterpret_cast<OMX_CONFIG_FRAMERATETYPE*>(configData);
-            DEBUG_PRINT_HIGH("set_config(): OMX_IndexConfigVideoFramerate (0x%lx)", pParam->xEncodeFramerate);
+            DEBUG_PRINT_HIGH("set_config(): OMX_IndexConfigVideoFramerate (0x%x)", pParam->xEncodeFramerate);
 
             if (pParam->nPortIndex == PORT_INDEX_OUT)
             {
@@ -1481,7 +1499,7 @@ OMX_ERRORTYPE  omx_venc::set_config
             }
             else
             {
-                DEBUG_PRINT_ERROR("ERROR: Unsupported port index: %lu", pParam->nPortIndex);
+                DEBUG_PRINT_ERROR("ERROR: Unsupported port index: %u", pParam->nPortIndex);
                 RETURN(OMX_ErrorBadPortIndex);
             }
             break;
@@ -1500,7 +1518,7 @@ OMX_ERRORTYPE  omx_venc::set_config
                     RETURN(OMX_ErrorUnsupportedSetting);
                 }
 
-                DEBUG_PRINT_HIGH("Old: P/B frames = %lu/%lu, New: P/B frames = %lu/%lu",
+                DEBUG_PRINT_HIGH("Old: P/B frames = %u/%u, New: P/B frames = %u/%u",
                         m_sIntraperiod.nPFrames, m_sIntraperiod.nBFrames,
                         pParam->nPFrames, pParam->nBFrames);
                 if (m_sIntraperiod.nBFrames != pParam->nBFrames)
@@ -1541,7 +1559,7 @@ OMX_ERRORTYPE  omx_venc::set_config
             }
             else
             {
-                DEBUG_PRINT_ERROR("ERROR: (QOMX_IndexConfigVideoIntraperiod) Unsupported port index: %lu", pParam->nPortIndex);
+                DEBUG_PRINT_ERROR("ERROR: (QOMX_IndexConfigVideoIntraperiod) Unsupported port index: %u", pParam->nPortIndex);
                 RETURN(OMX_ErrorBadPortIndex);
             }
 
@@ -1572,7 +1590,7 @@ OMX_ERRORTYPE  omx_venc::set_config
             }
             else
             {
-                DEBUG_PRINT_ERROR("ERROR: Unsupported port index: %lu", pParam->nPortIndex);
+                DEBUG_PRINT_ERROR("ERROR: Unsupported port index: %u", pParam->nPortIndex);
                 RETURN(OMX_ErrorBadPortIndex);
             }
             break;
@@ -1666,7 +1684,7 @@ OMX_U32 omx_venc::dev_stop(void)
             __FUNCTION__, Ret);
           RETURN(-1);
        }
-
+       format_set = false;
        m_stopped = true;
 
        /* post STOP_DONE event as start is synchronus */
@@ -1795,6 +1813,16 @@ bool omx_venc::dev_empty_buf
           {
               offset = meta_buf->meta_handle->data[1];
               size = meta_buf->meta_handle->data[2];
+              if (!format_set &&
+                  (meta_buf->meta_handle->numFds + meta_buf->meta_handle->numInts > 5))
+              {
+                  format_set = true;
+                  if (((OMX_COLOR_FORMATTYPE) meta_buf->meta_handle->data[5]) !=
+                      m_sInPortFormat.eColorFormat)
+                  {
+                      return false;
+                  }
+              }
           }
           else if (meta_buf->buffer_type == kMetadataBufferTypeGrallocSource)
           {
@@ -1871,7 +1899,7 @@ bool omx_venc::dev_fill_buf
     opbuffer.p_extradata = NULL;
     opbuffer.p_client_data = (unsigned char *)bufhdr;
 
-    DEBUG_PRINT_LOW("FTB: p_buffer (%p) size (%d) filled_len (%d) flags (0x%X) timestamp (%lld) clientData (0x%X)",
+    DEBUG_PRINT_LOW("FTB: p_buffer (%p) size (%d) filled_len (%d) flags (0x%X) timestamp (%lld) clientData (%p)",
       opbuffer.p_buffer,
       opbuffer.size,
       opbuffer.filled_length,
@@ -1981,6 +2009,16 @@ bool omx_venc::dev_get_vui_timing_info(OMX_U32 *enabled)
     RETURN(false);
 }
 
+bool omx_venc::dev_get_vqzip_sei_info(OMX_U32 *enabled)
+{
+    ENTER_FUNC();
+
+    (void)enabled;
+    DEBUG_PRINT_ERROR("Get vqzip sei info is not supported");
+
+    RETURN(false);
+}
+
 bool omx_venc::dev_get_peak_bitrate(OMX_U32 *peakbitrate)
 {
     //TBD: store the peak bitrate in class and return here;
@@ -1988,6 +2026,17 @@ bool omx_venc::dev_get_peak_bitrate(OMX_U32 *peakbitrate)
 
     (void)peakbitrate;
     DEBUG_PRINT_ERROR("Get peak bitrate is not supported");
+
+    RETURN(false);
+}
+
+bool omx_venc::dev_get_batch_size(OMX_U32 *size)
+{
+    ENTER_FUNC();
+
+    (void)size;
+
+    DEBUG_PRINT_ERROR("Get batch size is not supported");
 
     RETURN(false);
 }
@@ -2080,7 +2129,7 @@ bool omx_venc::dev_set_buf_req
 
    if (*actual_buff_count < PortDef->nBufferCountMin)
    {
-      DEBUG_PRINT_ERROR("ERROR: %s, (actual,min) buffer count (%ld, %ld)",
+      DEBUG_PRINT_ERROR("ERROR: %s, (actual,min) buffer count (%d, %d)",
          __FUNCTION__, *actual_buff_count, PortDef->nBufferCountMin);
       RETURN(false);
    }
@@ -2088,7 +2137,7 @@ bool omx_venc::dev_set_buf_req
    {
       if (*buff_size < PortDef->nBufferSize)
       {
-          DEBUG_PRINT_ERROR("ERROR: %s, (new,old) buffer count (%ld, %ld)",
+          DEBUG_PRINT_ERROR("ERROR: %s, (new,old) buffer count (%d, %d)",
              __FUNCTION__, *actual_buff_count, PortDef->nBufferCountMin);
           RETURN(false);
       }
@@ -2106,7 +2155,7 @@ bool omx_venc::dev_is_video_session_supported(OMX_U32 width, OMX_U32 height)
       )
    {
        DEBUG_PRINT_ERROR(
-         "Unsupported Resolution WxH = (%lu)x(%lu) Supported Range = min (%d)x(%d) - max (%d)x(%d)",
+         "Unsupported Resolution WxH = (%u)x(%u) Supported Range = min (%d)x(%d) - max (%d)x(%d)",
          width, height,
          m_capability.min_width, m_capability.min_height,
          m_capability.max_width, m_capability.max_height);
@@ -2116,7 +2165,7 @@ bool omx_venc::dev_is_video_session_supported(OMX_U32 width, OMX_U32 height)
    RETURN(true);
 }
 
-int omx_venc::dev_handle_extradata(void *buffer, int index)
+int omx_venc::dev_handle_output_extradata(void *buffer, int index)
 {
    ENTER_FUNC();
 
@@ -2124,7 +2173,17 @@ int omx_venc::dev_handle_extradata(void *buffer, int index)
    (void)index;
 
    RETURN(true);
-    //return handle->handle_extradata(buffer, index);
+}
+
+int omx_venc::dev_handle_input_extradata(void *buffer, int index, int fd)
+{
+   ENTER_FUNC();
+
+   (void)buffer;
+   (void)index;
+   (void)fd;
+
+   RETURN(true);
 }
 
 int omx_venc::dev_set_format(int color)
@@ -2238,7 +2297,7 @@ int omx_venc::swvenc_input_log_buffers(const char *buffer, int bufferlen)
        if (!m_debug.infile)
        {
            DEBUG_PRINT_HIGH("Failed to open input file: %s for logging",
-              m_debug.infile);
+              m_debug.infile_name);
            m_debug.infile_name[0] = '\0';
            RETURN(-1);
        }
@@ -2364,31 +2423,35 @@ SWVENC_STATUS omx_venc::swvenc_empty_buffer_done
         omxhdr = NULL;
         error = OMX_ErrorUndefined;
     }
-    // unmap the input buffer->pBuffer
-    omx_release_meta_buffer(omxhdr);
-#ifdef _ANDROID_ICS_
-    if (meta_mode_enable)
+
+    if (omxhdr != NULL)
     {
-       encoder_media_buffer_type *meta_buf = NULL;
-       unsigned int size = 0;
-       meta_buf = (encoder_media_buffer_type *)omxhdr->pBuffer;
-       if (meta_buf)
-       {
-          if (meta_buf->buffer_type == kMetadataBufferTypeCameraSource)
-          {
-              size = meta_buf->meta_handle->data[2];
-          }
-          else if (meta_buf->buffer_type == kMetadataBufferTypeGrallocSource)
-          {
-              private_handle_t *handle = (private_handle_t *)meta_buf->meta_handle;
-              size = handle->size;
-          }
-       }
-       int status = munmap(p_ipbuffer->p_buffer, size);
-       DEBUG_PRINT_HIGH("Unmapped pBuffer <%p> size <%d> status <%d>", p_ipbuffer->p_buffer, size, status);
-    }
+        // unmap the input buffer->pBuffer
+        omx_release_meta_buffer(omxhdr);
+#ifdef _ANDROID_ICS_
+        if (meta_mode_enable)
+        {
+           encoder_media_buffer_type *meta_buf = NULL;
+           unsigned int size = 0;
+           meta_buf = (encoder_media_buffer_type *)omxhdr->pBuffer;
+           if (meta_buf)
+           {
+              if (meta_buf->buffer_type == kMetadataBufferTypeCameraSource)
+              {
+                  size = meta_buf->meta_handle->data[2];
+              }
+              else if (meta_buf->buffer_type == kMetadataBufferTypeGrallocSource)
+              {
+                  private_handle_t *handle = (private_handle_t *)meta_buf->meta_handle;
+                  size = handle->size;
+              }
+           }
+           int status = munmap(p_ipbuffer->p_buffer, size);
+           DEBUG_PRINT_HIGH("Unmapped pBuffer <%p> size <%d> status <%d>", p_ipbuffer->p_buffer, size, status);
+        }
 #endif
-    post_event ((unsigned long)omxhdr,error,OMX_COMPONENT_GENERATE_EBD);
+        post_event ((unsigned long)omxhdr,error,OMX_COMPONENT_GENERATE_EBD);
+    }
 
     RETURN(eRet);
 }
@@ -2409,19 +2472,22 @@ SWVENC_STATUS omx_venc::swvenc_fill_buffer_done_cb
 
     (void)swvenc;
 
-    omxhdr = (OMX_BUFFERHEADERTYPE*)p_opbuffer->p_client_data;
-
-    DEBUG_PRINT_LOW("FBD: clientData (%p) buffer (%p) filled_lengh (%d) flags (0x%x) ts (%lld)",
-      p_opbuffer->p_client_data,
-      p_opbuffer->p_buffer,
-      p_opbuffer->filled_length,
-      p_opbuffer->flags,
-      p_opbuffer->timestamp);
+    if (p_opbuffer != NULL)
+    {
+        omxhdr = (OMX_BUFFERHEADERTYPE*)p_opbuffer->p_client_data;
+    }
 
     if ( (p_opbuffer != NULL) &&
          ((OMX_U32)(omxhdr - omx->m_out_mem_ptr)  < omx->m_sOutPortDef.nBufferCountActual)
        )
     {
+        DEBUG_PRINT_LOW("FBD: clientData (%p) buffer (%p) filled_lengh (%d) flags (0x%x) ts (%lld)",
+          p_opbuffer->p_client_data,
+          p_opbuffer->p_buffer,
+          p_opbuffer->filled_length,
+          p_opbuffer->flags,
+          p_opbuffer->timestamp);
+
         if (p_opbuffer->filled_length <=  omxhdr->nAllocLen)
         {
             omxhdr->pBuffer = p_opbuffer->p_buffer;

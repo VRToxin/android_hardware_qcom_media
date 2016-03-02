@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------------
-Copyright (c) 2009, The Linux Foundation. All rights reserved.
+Copyright (c) 2009, 2015, The Linux Foundation. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -47,10 +47,14 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "qc_omx_core.h"
 #include "omx_core_cmp.h"
+#include <cutils/properties.h>
 
 extern omx_core_cb_type core[];
 extern const unsigned int SIZE_OF_CORE;
 static pthread_mutex_t lock_core = PTHREAD_MUTEX_INITIALIZER;
+static int number_of_adec_nt_session;
+
+#define MAX_AUDIO_NT_SESSION 2
 
 /* ======================================================================
 FUNCTION
@@ -400,30 +404,97 @@ OMX_GetHandle(OMX_OUT OMX_HANDLETYPE*     handle,
   OMX_ERRORTYPE  eRet = OMX_ErrorNone;
   int cmp_index = -1;
   int hnd_index = -1;
+  int vpp_cmp_index = -1;
 
-  DEBUG_PRINT("OMXCORE API :  Get Handle %p %s %p\n", handle,
+  DEBUG_PRINT("OMXCORE API :  GetHandle %p %s %p\n", handle,
                                                      componentName,
                                                      appData);
   pthread_mutex_lock(&lock_core);
   if(handle)
   {
     struct stat sd;
-
     *handle = NULL;
+    char optComponentName[OMX_MAX_STRINGNAME_SIZE];
+    strlcpy(optComponentName, componentName, OMX_MAX_STRINGNAME_SIZE);
 
-    cmp_index = get_cmp_index(componentName);
+    if(strstr(componentName, "avc") && strstr(componentName, "decoder"))
+    {
+      void *libhandle = dlopen("libOmxVideoDSMode.so", RTLD_NOW);
+      if(libhandle)
+      {
+        int (*fn_ptr)()  = dlsym(libhandle, "isDSModeActive");
 
+        if(fn_ptr == NULL)
+        {
+          DEBUG_PRINT_ERROR("Error: isDSModeActive Not Found %s\n",
+                    dlerror());
+        }
+        else
+        {
+          int isActive = fn_ptr();
+          char *pSubString = strstr(componentName, ".dsmode");
+          if(pSubString)
+          {
+            optComponentName[pSubString - componentName] = 0;
+          }
+          else if(isActive)
+          {
+            strlcat(optComponentName, ".dsmode", OMX_MAX_STRINGNAME_SIZE);
+          }
+          cmp_index = get_cmp_index(optComponentName);
+        }
+        dlclose(libhandle);
+      }
+      else
+      {
+        DEBUG_PRINT_ERROR("Failed to load dsmode library");
+      }
+    }
+
+    if(cmp_index < 0)
+    {
+      cmp_index = get_cmp_index(componentName);
+      strlcpy(optComponentName, componentName, OMX_MAX_STRINGNAME_SIZE);
+    }
     if(cmp_index >= 0)
     {
-       DEBUG_PRINT("getting fn pointer\n");
+      char value[PROPERTY_VALUE_MAX];
+      DEBUG_PRINT("getting fn pointer\n");
 
-      // dynamically load the so
+      // Load VPP omx component for decoder if vpp
+      // property is enabled
+      if ((property_get("media.vpp.enable", value, NULL))
+           && (!strcmp("1", value) || !strcmp("true", value))) {
+        DEBUG_PRINT("VPP property is enabled");
+        if (!strcmp(core[cmp_index].so_lib_name, "libOmxVdec.so")) {
+          vpp_cmp_index = get_cmp_index("OMX.qti.vdec.vpp");
+          if (vpp_cmp_index < 0) {
+            DEBUG_PRINT_ERROR("Unable to find VPP OMX lib in registry ");
+          } else {
+            DEBUG_PRINT("Loading vpp for vdec");
+            cmp_index = vpp_cmp_index;
+          }
+        }
+      }
+
+       // dynamically load the so
       core[cmp_index].fn_ptr =
         omx_core_load_cmp_library(core[cmp_index].so_lib_name,
                                   &core[cmp_index].so_lib_handle);
 
+
       if(core[cmp_index].fn_ptr)
       {
+        //Do not allow more than MAX limit for DSP audio decoders
+        if((!strcmp(core[cmp_index].so_lib_name,"libOmxWmaDec.so")  ||
+            !strcmp(core[cmp_index].so_lib_name,"libOmxAacDec.so")  ||
+            !strcmp(core[cmp_index].so_lib_name,"libOmxAlacDec.so") ||
+            !strcmp(core[cmp_index].so_lib_name,"libOmxApeDec.so")) &&
+            (number_of_adec_nt_session+1 > MAX_AUDIO_NT_SESSION)) {
+            DEBUG_PRINT_ERROR("Rejecting new session..Reached max limit for DSP audio decoder session");
+            pthread_mutex_unlock(&lock_core);
+            return OMX_ErrorInsufficientResources;
+        }
         // Construct the component requested
         // Function returns the opaque handle
         void* pThis = (*(core[cmp_index].fn_ptr))();
@@ -431,7 +502,7 @@ OMX_GetHandle(OMX_OUT OMX_HANDLETYPE*     handle,
         {
           void *hComp = NULL;
           hComp = qc_omx_create_component_wrapper((OMX_PTR)pThis);
-          if((eRet = qc_omx_component_init(hComp, core[cmp_index].name)) !=
+          if((eRet = qc_omx_component_init(hComp, optComponentName)) !=
                            OMX_ErrorNone)
           {
               DEBUG_PRINT("Component not created succesfully\n");
@@ -440,7 +511,16 @@ OMX_GetHandle(OMX_OUT OMX_HANDLETYPE*     handle,
 
           }
           qc_omx_component_set_callbacks(hComp,callBacks,appData);
-          hnd_index = get_comp_handle_index(componentName);
+
+          if (vpp_cmp_index >= 0)
+          {
+            hnd_index = get_comp_handle_index("OMX.qti.vdec.vpp");
+          }
+          else
+          {
+            hnd_index = get_comp_handle_index(optComponentName);
+          }
+
           if(hnd_index >= 0)
           {
             core[cmp_index].inst[hnd_index]= *handle = (OMX_HANDLETYPE) hComp;
@@ -452,6 +532,15 @@ OMX_GetHandle(OMX_OUT OMX_HANDLETYPE*     handle,
             return OMX_ErrorInsufficientResources;
           }
           DEBUG_PRINT("Component %p Successfully created\n",*handle);
+          if(!strcmp(core[cmp_index].so_lib_name,"libOmxWmaDec.so")  ||
+             !strcmp(core[cmp_index].so_lib_name,"libOmxAacDec.so")  ||
+             !strcmp(core[cmp_index].so_lib_name,"libOmxAlacDec.so") ||
+             !strcmp(core[cmp_index].so_lib_name,"libOmxApeDec.so")) {
+
+             number_of_adec_nt_session++;
+             DEBUG_PRINT("OMX_GetHandle: number_of_adec_nt_session : %d\n",
+                             number_of_adec_nt_session);
+          }
         }
         else
         {
@@ -498,7 +587,7 @@ OMX_FreeHandle(OMX_IN OMX_HANDLETYPE hComp)
 {
   OMX_ERRORTYPE eRet = OMX_ErrorNone;
   int err = 0, i = 0;
-  DEBUG_PRINT("OMXCORE API :  Free Handle %p\n", hComp);
+  DEBUG_PRINT("OMXCORE API :  FreeHandle %p\n", hComp);
 
   // 0. Check that we have an active instance
   if((i=is_cmp_handle_exists(hComp)) >=0)
@@ -507,6 +596,7 @@ OMX_FreeHandle(OMX_IN OMX_HANDLETYPE hComp)
     if ((eRet = qc_omx_component_deinit(hComp)) == OMX_ErrorNone)
     {
         pthread_mutex_lock(&lock_core);
+        clear_cmp_handle(hComp);
         /* Unload component library */
     if( (i < (int)SIZE_OF_CORE) && core[i].so_lib_handle)
     {
@@ -522,13 +612,21 @@ OMX_FreeHandle(OMX_IN OMX_HANDLETYPE hComp)
               }
               core[i].so_lib_handle = NULL;
            }
+           if(!strcmp(core[i].so_lib_name,"libOmxWmaDec.so")  ||
+              !strcmp(core[i].so_lib_name,"libOmxAacDec.so")  ||
+              !strcmp(core[i].so_lib_name,"libOmxAlacDec.so") ||
+              !strcmp(core[i].so_lib_name,"libOmxApeDec.so")) {
+               if(number_of_adec_nt_session>0)
+                   number_of_adec_nt_session--;
+               DEBUG_PRINT_ERROR("OMX_FreeHandle: reduced number_of_adec_nt_session %d\n",
+                                   number_of_adec_nt_session);
+           }
     }
-    clear_cmp_handle(hComp);
     pthread_mutex_unlock(&lock_core);
     }
     else
     {
-    DEBUG_PRINT(" OMX_FreeHandle failed on %p\n", hComp);
+        DEBUG_PRINT(" OMX_FreeHandle failed on %p\n", hComp);
         return eRet;
     }
   }
