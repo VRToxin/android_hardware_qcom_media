@@ -253,6 +253,7 @@ omx_video::omx_video():
     mUsesColorConversion = false;
     pthread_mutex_init(&m_lock, NULL);
     sem_init(&m_cmd_lock,0,0);
+    DEBUG_PRINT_LOW("meta_buffer_hdr = %p", meta_buffer_hdr);
 }
 
 
@@ -2099,6 +2100,7 @@ OMX_ERRORTYPE  omx_video::use_input_buffer(
             DEBUG_PRINT_ERROR("ERROR: calloc() Failed for m_inp_mem_ptr");
             return OMX_ErrorInsufficientResources;
         }
+        DEBUG_PRINT_LOW("Successfully allocated m_inp_mem_ptr = %p", m_inp_mem_ptr);
 
 
         m_pInput_pmem = (struct pmem *) calloc(sizeof (struct pmem), m_sInPortDef.nBufferCountActual);
@@ -2617,8 +2619,11 @@ OMX_ERRORTYPE omx_video::allocate_input_meta_buffer(
         return OMX_ErrorBadParameter;
     }
 
-    if (!m_inp_mem_ptr && !mUseProxyColorFormat)
+    if (!m_inp_mem_ptr && !mUseProxyColorFormat) {
         m_inp_mem_ptr = meta_buffer_hdr;
+        DEBUG_PRINT_LOW("use meta_buffer_hdr (%p) as m_inp_mem_ptr = %p",
+                meta_buffer_hdr, m_inp_mem_ptr);
+    }
     for (index = 0; ((index < m_sInPortDef.nBufferCountActual) &&
                 meta_buffer_hdr[index].pBuffer); index++);
     if (index == m_sInPortDef.nBufferCountActual) {
@@ -2694,6 +2699,7 @@ OMX_ERRORTYPE  omx_video::allocate_input_buffer(
             return OMX_ErrorInsufficientResources;
         }
 
+        DEBUG_PRINT_LOW("Successfully allocated m_inp_mem_ptr = %p", m_inp_mem_ptr);
         m_pInput_pmem = (struct pmem *) calloc(sizeof (struct pmem), m_sInPortDef.nBufferCountActual);
 
         if (m_pInput_pmem == NULL) {
@@ -3955,22 +3961,20 @@ OMX_ERRORTYPE omx_video::empty_buffer_done(OMX_HANDLETYPE         hComp,
         OMX_BUFFERHEADERTYPE* buffer)
 {
     int buffer_index  = -1;
-    int buffer_index_meta = -1;
 
-    buffer_index = (buffer - m_inp_mem_ptr);
-    buffer_index_meta = (buffer - meta_buffer_hdr);
+    buffer_index = buffer - ((mUseProxyColorFormat && !mUsesColorConversion) ? meta_buffer_hdr : m_inp_mem_ptr);
     DEBUG_PRINT_LOW("empty_buffer_done: buffer[%p]", buffer);
     if (buffer == NULL ||
-            ((buffer_index > (int)m_sInPortDef.nBufferCountActual) &&
-             (buffer_index_meta > (int)m_sInPortDef.nBufferCountActual))) {
+            ((buffer_index > (int)m_sInPortDef.nBufferCountActual))) {
         DEBUG_PRINT_ERROR("ERROR in empty_buffer_done due to index buffer");
         return OMX_ErrorBadParameter;
     }
 
     pending_input_buffers--;
 
-    if (mUseProxyColorFormat && (buffer_index < (int)m_sInPortDef.nBufferCountActual)) {
-        if (!pdest_frame  && !input_flush_progress) {
+    if (mUseProxyColorFormat &&
+        (buffer_index >= 0 && (buffer_index < (int)m_sInPortDef.nBufferCountActual))) {
+        if (!pdest_frame  && !input_flush_progress && mUsesColorConversion) {
             pdest_frame = buffer;
             DEBUG_PRINT_LOW("empty_buffer_done pdest_frame address is %p",pdest_frame);
             return push_input_buffer(hComp);
@@ -4501,17 +4505,20 @@ OMX_ERRORTYPE  omx_video::empty_this_buffer_opaque(OMX_IN OMX_HANDLETYPE hComp,
         return empty_this_buffer_proxy(hComp, buffer);
     }
 
-    /*Enable following code once private handle color format is
-      updated correctly*/
-
     if (buffer->nFilledLen > 0 && handle) {
+        /*Enable following code once private handle color format is
+            updated correctly*/
+        if (handle->format == HAL_PIXEL_FORMAT_RGBA_8888)
+            mUsesColorConversion = true;
+        else
+            mUsesColorConversion = false;
+
         if (c2d_opened && handle->format != c2d_conv.get_src_format()) {
             c2d_conv.close();
             c2d_opened = false;
         }
         if (!c2d_opened) {
             if (handle->format == HAL_PIXEL_FORMAT_RGBA_8888) {
-                mUsesColorConversion = true;
                 DEBUG_PRINT_ERROR("open Color conv for RGBA888 W: %lu, H: %lu",
                         m_sInPortDef.format.video.nFrameWidth,
                         m_sInPortDef.format.video.nFrameHeight);
@@ -4527,7 +4534,9 @@ OMX_ERRORTYPE  omx_video::empty_this_buffer_opaque(OMX_IN OMX_HANDLETYPE hComp,
                 if (!dev_set_format(handle->format))
                     DEBUG_PRINT_ERROR("cannot set color format for RGBA8888");
 #endif
-            } else if (handle->format != HAL_PIXEL_FORMAT_NV12_ENCODEABLE) {
+            } else if (handle->format != HAL_PIXEL_FORMAT_NV12_ENCODEABLE &&
+                    handle->format != QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m &&
+                    handle->format != QOMX_COLOR_FormatYVU420SemiPlanar) {
                 DEBUG_PRINT_ERROR("Incorrect color format");
                 m_pCallbacks.EmptyBufferDone(hComp,m_app_data,buffer);
                 return OMX_ErrorBadParameter;
@@ -4679,6 +4688,7 @@ OMX_ERRORTYPE omx_video::push_input_buffer(OMX_HANDLETYPE hComp)
     unsigned address = 0,p2,id, index = 0;
     OMX_ERRORTYPE ret = OMX_ErrorNone;
 
+    DEBUG_PRINT_LOW("In push input buffer");
     if (!psource_frame && m_opq_meta_q.m_size) {
         m_opq_meta_q.pop_entry(&address,&p2,&id);
         psource_frame = (OMX_BUFFERHEADERTYPE* ) address;
@@ -4724,7 +4734,8 @@ OMX_ERRORTYPE omx_video::push_input_buffer(OMX_HANDLETYPE hComp)
             Input_pmem_info.size = handle->size;
             if (handle->format == HAL_PIXEL_FORMAT_RGBA_8888)
                 ret = convert_queue_buffer(hComp,Input_pmem_info,index);
-            else if (handle->format == HAL_PIXEL_FORMAT_NV12_ENCODEABLE)
+            else if (handle->format == HAL_PIXEL_FORMAT_NV12_ENCODEABLE ||
+                    handle->format == QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m)
                 ret = queue_meta_buffer(hComp,Input_pmem_info);
             else
                 ret = OMX_ErrorBadParameter;
@@ -4737,18 +4748,27 @@ OMX_ERRORTYPE omx_video::push_empty_eos_buffer(OMX_HANDLETYPE hComp,
         OMX_BUFFERHEADERTYPE* buffer) {
     OMX_BUFFERHEADERTYPE* opqBuf = NULL;
     OMX_ERRORTYPE retVal = OMX_ErrorNone;
+    unsigned index = 0;
+
+    DEBUG_PRINT_LOW("In push empty eos buffer");
     do {
-        if (pdest_frame) {
-            //[1] use a checked out conversion buffer, if one is available
-            opqBuf = pdest_frame;
-            pdest_frame = NULL;
-        } else if (m_opq_pmem_q.m_size) {
-            //[2] else pop out one from the queue, if available
-            unsigned address = 0, p2, id;
-            m_opq_pmem_q.pop_entry(&address,&p2,&id);
-            opqBuf = (OMX_BUFFERHEADERTYPE* ) address;
+        if (mUsesColorConversion) {
+            if (pdest_frame) {
+                //[1] use a checked out conversion buffer, if one is available
+                opqBuf = pdest_frame;
+                pdest_frame = NULL;
+            } else if (m_opq_pmem_q.m_size) {
+                //[2] else pop out one from the queue, if available
+                unsigned address = 0, p2, id;
+                m_opq_pmem_q.pop_entry(&address,&p2,&id);
+                opqBuf = (OMX_BUFFERHEADERTYPE* ) address;
+            }
+            index = opqBuf - m_inp_mem_ptr;
+        } else {
+            opqBuf = (OMX_BUFFERHEADERTYPE* ) buffer;
+            index = opqBuf - meta_buffer_hdr;
         }
-        unsigned index = opqBuf - m_inp_mem_ptr;
+
         if (!opqBuf || index >= m_sInPortDef.nBufferCountActual) {
             DEBUG_PRINT_ERROR("push_empty_eos_buffer: Could not find a "
                     "color-conversion buffer to queue ! defer until available");
@@ -4777,6 +4797,8 @@ OMX_ERRORTYPE omx_video::push_empty_eos_buffer(OMX_HANDLETYPE hComp,
         emptyEosBufHdr.nTimeStamp = buffer->nTimeStamp;
         emptyEosBufHdr.nFlags = buffer->nFlags;
         emptyEosBufHdr.pBuffer = NULL;
+        if (!mUsesColorConversion)
+            emptyEosBufHdr.nAllocLen = m_sInPortDef.nBufferSize;
         if (dev_empty_buf(&emptyEosBufHdr, 0, index, m_pInput_pmem[index].fd) != true) {
             DEBUG_PRINT_ERROR("ERROR: in dev_empty_buf for empty eos buffer");
             dev_free_buf(&Input_pmem_info, PORT_INDEX_IN);
